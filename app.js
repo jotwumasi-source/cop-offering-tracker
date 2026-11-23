@@ -42,6 +42,7 @@ function demoApi(r) {
     if (r.action === 'editPledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (r.name != null && String(r.name).trim()) p.Name = String(r.name).trim(); if (r.phone != null) p.Phone = String(r.phone); if (+r.amount > 0) p.Amount = +r.amount; if (parseInt(r.months, 10) > 0) p.Months = parseInt(r.months, 10); if (r.note != null) p.Note = String(r.note); }
     if (r.action === 'deletePledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (d.payments.some(x => x.PledgeID === r.id && !isVoid(x))) throw new Error('This pledge has payments. Void them first.'); p.Status = 'REMOVED'; }
     if (r.action === 'voidPayment') { const p = d.payments.find(x => x.ReceiptNo === r.receiptNo); if (!p) throw new Error('Receipt not found'); p.Status = 'VOID'; }
+    if (r.action === 'editOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); if (!(+r.amount > 0)) throw new Error('Amount must be positive'); o.Amount = +r.amount; if (r.name != null) o.Name = r.name; if (r.method) o.Method = r.method; if (r.date) o.Date = r.date; if (r.note != null) o.Note = r.note; }
     if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); o.Status = 'VOID'; }
     demoSave(d);
   }
@@ -88,7 +89,7 @@ function render() {
   const cnt = {}; rows.forEach(r => { const k = 'n:' + r.Name.trim().toLowerCase(); cnt[k] = (cnt[k] || 0) + 1; const p = phoneOf(r.Phone); if (p) cnt['p:' + p] = (cnt['p:' + p] || 0) + 1; });
   const isDup = r => cnt['n:' + r.Name.trim().toLowerCase()] > 1 || (phoneOf(r.Phone) && cnt['p:' + phoneOf(r.Phone)] > 1);
   $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b>${isDup(r) ? ' <span class="pill part" title="Another pledge has the same name or phone">POSSIBLE DUPLICATE</span>' : ''}<div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
-  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap">${pend(o.OfferingNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(o.OfferingNo) + '">PDF</button>' + (S.role === 'finsec' ? ' <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : '')}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
+  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap">${pend(o.OfferingNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(o.OfferingNo) + '">PDF</button>' + (S.role === 'finsec' ? ' <button class="btn sm ghost" data-eo="' + esc(o.OfferingNo) + '">Edit</button> <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : '')}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
   const nm = Object.fromEntries(S.pledges.map(p => [p.PledgeID, p.Name]));
   const rc = valid().slice().sort((a, b) => String(b.ReceiptNo).localeCompare(String(a.ReceiptNo))).slice(0, 15);
   $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${pend(p.ReceiptNo) ? '…' : esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || '')}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n">${pend(p.ReceiptNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(p.ReceiptNo) + '">PDF</button>'}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
@@ -127,7 +128,7 @@ function payDialog(id) {
   $('#dPledge').close();
   $('#yTitle').textContent = 'PAYMENT · ' + r.Name.toUpperCase();
   $('#ySum').innerHTML = `<div><b>${money0(r.pledged)}</b><span>Pledged</span></div><div><b>${money0(r.paid)}</b><span>Paid so far</span></div><div><b style="color:var(--red)">${money0(Math.max(0, r.bal))}</b><span>Balance</span></div>`;
-  $('#yAmt').value = r.bal > 0 ? r.bal : ''; $('#yAmt').max = Math.max(0, r.bal);
+  $('#yAmt').value = r.bal > 0 ? (Math.round(r.bal * 100) / 100) : ''; $('#yAmt').removeAttribute('max');
   $('#yDate').value = new Date().toISOString().slice(0, 10); $('#yRef').value = ''; $('#yErr').textContent = '';
   $('#fPay').dataset.id = id; openD($('#dPay'));
 }
@@ -149,6 +150,7 @@ function applyLocal(req, created) {
   else if (req.action === 'editPledge') { const p = S.pledges.find(x => x.PledgeID === req.id); if (p) { if (req.name) p.Name = req.name; p.Phone = req.phone ?? p.Phone; if (num(req.amount) > 0) p.Amount = num(req.amount); p.Months = mo(req.months); p.Note = req.note ?? p.Note; } }
   else if (req.action === 'deletePledge') S.pledges = S.pledges.filter(x => x.PledgeID !== req.id);
   else if (req.action === 'voidPayment') { const p = S.payments.find(x => x.ReceiptNo === req.receiptNo); if (p) p.Status = 'VOID'; }
+  else if (req.action === 'editOffering') { const o = S.offerings.find(x => x.OfferingNo === req.offeringNo); if (o) { o.Amount = num(req.amount); if (req.name != null) o.Name = req.name; if (req.method) o.Method = req.method; if (req.date) o.Date = req.date; if (req.note != null) o.Note = req.note; } }
   else if (req.action === 'voidOffering') S.offerings = S.offerings.filter(o => o.OfferingNo !== req.offeringNo);
 }
 // Everything shows on screen instantly and syncs in the background. Adds get a temporary id until the server assigns the real number.
@@ -174,6 +176,12 @@ async function mutate(req, okMsg) {
   applyLocal(req); render(); toast(okMsg);
   api(full).catch(er => { const s = JSON.parse(snap); S.pledges = s.p; S.payments = s.y; S.offerings = s.o; render(); toast('Not saved: ' + er.message + ' (change undone)'); });
   return {};
+}
+function editSeedDialog(no) {
+  const o = S.offerings.find(x => x.OfferingNo === no); if (!o) return;
+  $('#fSeed').reset(); $('#fSeed').dataset.edit = no; $('#sTitle').textContent = 'EDIT SEED OFFERING ' + no; $('#sBtn').textContent = 'Save changes'; $('#sHelp').classList.add('hidden');
+  $('#sAmt').value = o.Amount; $('#sDate').value = String(o.Date).slice(0, 10); $('#sMethod').value = o.Method; $('#sName').value = o.Name || ''; $('#sNote').value = o.Note || ''; $('#sErr').textContent = '';
+  openD($('#dSeed'));
 }
 function editDialog(id) {
   const p = S.pledges.find(x => x.PledgeID === id); $('#dPledge').close();
@@ -259,7 +267,8 @@ $('#csv').onclick = () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.map(l => l.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' })); a.download = 'pledges.csv'; a.click();
 };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],[data-edit],[data-del],[data-voidp],[data-voido],tr.row'); if (!t) return;
+  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],[data-edit],[data-del],[data-voidp],[data-voido],[data-eo],tr.row'); if (!t) return;
+  if (t.dataset.eo) return editSeedDialog(t.dataset.eo);
   if (t.dataset.edit) return editDialog(t.dataset.edit);
   if (t.dataset.del) { const p = S.pledges.find(x => x.PledgeID === t.dataset.del); $('#dPledge').close(); return confirmAction('REMOVE PLEDGE', 'Remove the pledge of <b>' + esc(p.Name) + '</b> (' + money(p.Amount) + ')? It disappears from the totals. The row stays in the Sheet marked REMOVED.', 'Remove').then(r => { if (r !== null) mutate({ action: 'deletePledge', id: p.PledgeID, reason: r }, 'Pledge removed').catch(er => toast(er.message)); }); }
   if (t.dataset.voidp) { const p = S.payments.find(x => x.ReceiptNo === t.dataset.voidp); $('#dPledge').close(); return confirmAction('VOID PAYMENT', 'Void receipt <b>' + esc(p.ReceiptNo) + '</b> (' + money(p.Amount) + ')? The amount is taken out of the totals and the pledge balance goes back up. The receipt stays in the Sheet marked VOID. Record the correct payment afterwards if needed.', 'Void payment').then(r => { if (r !== null) mutate({ action: 'voidPayment', receiptNo: p.ReceiptNo, reason: r }, 'Receipt ' + p.ReceiptNo + ' voided').catch(er => toast(er.message)); }); }
@@ -271,23 +280,38 @@ document.addEventListener('click', e => {
 });
 $('#fEdit').addEventListener('submit', e => {
   e.preventDefault(); const id = e.target.dataset.id;
+  if (!ok('#eErr', [[$('#eName').value.trim(), 'Enter the name.', '#eName'], [pos('#eAmt'), 'Enter a pledge amount greater than 0.', '#eAmt'], [months('#eMonths'), 'Instalment months must be a whole number from 1 to 24.', '#eMonths']])) return;
   $('#dEdit').close();
   mutate({ action: 'editPledge', id, name: $('#eName').value.trim(), phone: $('#ePhone').value.trim(), amount: $('#eAmt').value, months: $('#eMonths').value, note: $('#eNote').value.trim() }, 'Pledge updated');
 });
 const failed = er => toast('Not saved: ' + er.message);
-$('#addSeed').onclick = () => { $('#fSeed').reset(); $('#sDate').value = new Date().toISOString().slice(0, 10); $('#sErr').textContent = ''; openD($('#dSeed')); };
+// Shows a clear message under the form instead of a silent browser tooltip. Returns true when everything is fine.
+function ok(errSel, checks) {
+  for (const [good, msg, sel] of checks) if (!good) { $(errSel).textContent = msg; if (sel) $(sel).focus(); return false; }
+  $(errSel).textContent = ''; return true;
+}
+const pos = sel => Number($(sel).value) > 0, months = sel => { const n = Number($(sel).value); return Number.isInteger(n) && n >= 1 && n <= 24; };
+$('#addSeed').onclick = () => { $('#fSeed').reset(); delete $('#fSeed').dataset.edit; $('#sTitle').textContent = 'SEED CASH OFFERING'; $('#sBtn').textContent = 'Save & create receipt'; $('#sHelp').classList.remove('hidden'); $('#sDate').value = new Date().toISOString().slice(0, 10); $('#sErr').textContent = ''; openD($('#dSeed')); };
 $('#fSeed').addEventListener('submit', e => {
-  e.preventDefault(); $('#dSeed').close();
+  e.preventDefault();
+  if (!ok('#sErr', [[pos('#sAmt'), 'Enter the amount (greater than 0).', '#sAmt'], [$('#sDate').value, 'Choose the date.', '#sDate']])) return;
+  $('#dSeed').close();
+  const editNo = e.target.dataset.edit;
+  if (editNo) { mutate({ action: 'editOffering', offeringNo: editNo, name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, editNo + ' updated'); return; }
   mutate({ action: 'addOffering', name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, 'Seed offering recorded')
     .then(c => { if (c.OfferingNo) downloadReceipt(c.OfferingNo); }).catch(failed);
 });
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
 $('#fAdd').addEventListener('submit', e => {
-  e.preventDefault(); $('#dAdd').close();
+  e.preventDefault();
+  if (!ok('#aErr', [[$('#aName').value.trim(), 'Enter the name.', '#aName'], [pos('#aAmt'), 'Enter a pledge amount greater than 0.', '#aAmt'], [months('#aMonths'), 'Instalment months must be a whole number from 1 to 24.', '#aMonths']])) return;
+  $('#dAdd').close();
   mutate({ action: 'addPledge', name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }, 'Pledge saved').catch(failed);
 });
 $('#fPay').addEventListener('submit', e => {
   e.preventDefault(); const id = e.target.dataset.id;
+  if (!ok('#yErr', [[pos('#yAmt'), 'Enter the amount received (greater than 0).', '#yAmt'], [$('#yDate').value, 'Choose the payment date.', '#yDate']])) return;
+  const row = model().rows.find(x => x.PledgeID === id); if (row && Number($('#yAmt').value) > row.bal + 0.005) toast('Note: this is more than the balance of ' + money(Math.max(0, row.bal)));
   $('#dPay').close();
   const p = mutate({ action: 'addPayment', pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() }, 'Payment recorded');
   pledgeDialog(id);

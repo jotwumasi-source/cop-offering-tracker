@@ -158,9 +158,9 @@ svg text{font-family:Montserrat,sans-serif}
 
 <!-- add pledge -->
 <dialog id="dAdd"><div class="dh"><h3>ADD PLEDGE</h3><button data-close>×</button></div>
-<form class="db" id="fAdd">
+<form class="db" id="fAdd" novalidate>
   <label>Full name</label><input id="aName" required>
-  <div class="row2"><div><label>Phone / WhatsApp</label><input id="aPhone" inputmode="tel" placeholder="024…"></div><div><label>Pledge amount</label><input id="aAmt" type="number" min="1" step="0.01" required></div></div>
+  <div class="row2"><div><label>Phone / WhatsApp</label><input id="aPhone" inputmode="tel" placeholder="024…"></div><div><label>Pledge amount</label><input id="aAmt" type="number" min="1" step="any" required></div></div>
   <label>Instalment months (1 = pay in full)</label><input id="aMonths" type="number" min="1" max="24" step="1" value="1" required>
   <label>Note (optional)</label><input id="aNote">
   <div class="err" id="aErr"></div>
@@ -169,9 +169,9 @@ svg text{font-family:Montserrat,sans-serif}
 
 <!-- edit pledge -->
 <dialog id="dEdit"><div class="dh"><h3>EDIT PLEDGE</h3><button data-close>×</button></div>
-<form class="db" id="fEdit">
+<form class="db" id="fEdit" novalidate>
   <label>Full name</label><input id="eName" required>
-  <div class="row2"><div><label>Phone / WhatsApp</label><input id="ePhone" inputmode="tel"></div><div><label>Pledge amount</label><input id="eAmt" type="number" min="1" step="0.01" required></div></div>
+  <div class="row2"><div><label>Phone / WhatsApp</label><input id="ePhone" inputmode="tel"></div><div><label>Pledge amount</label><input id="eAmt" type="number" min="1" step="any" required></div></div>
   <label>Instalment months</label><input id="eMonths" type="number" min="1" max="24" step="1" required>
   <label>Note</label><input id="eNote">
   <div class="err" id="eErr"></div>
@@ -187,10 +187,10 @@ svg text{font-family:Montserrat,sans-serif}
 </form></dialog>
 
 <!-- seed offering -->
-<dialog id="dSeed"><div class="dh"><h3>SEED CASH OFFERING</h3><button data-close>×</button></div>
-<form class="db" id="fSeed">
-  <div style="font-size:13px;color:var(--mute)">Cash or MoMo given as a seed offering (not a pledge). It is added to the total raised.</div>
-  <div class="row2"><div><label>Amount</label><input id="sAmt" type="number" min="0.01" step="0.01" required></div><div><label>Date</label><input id="sDate" type="date" required></div></div>
+<dialog id="dSeed"><div class="dh"><h3 id="sTitle">SEED CASH OFFERING</h3><button data-close>×</button></div>
+<form class="db" id="fSeed" novalidate>
+  <div id="sHelp" style="font-size:13px;color:var(--mute)">Cash or MoMo given as a seed offering (not a pledge). It is added to the total raised.</div>
+  <div class="row2"><div><label>Amount</label><input id="sAmt" type="number" min="0.01" step="any" required></div><div><label>Date</label><input id="sDate" type="date" required></div></div>
   <div class="row2"><div><label>Method</label><select id="sMethod"><option>Cash</option><option>MoMo</option><option>Bank transfer</option><option>Cheque</option></select></div><div><label>Given by (optional)</label><input id="sName" placeholder="Leave blank if anonymous"></div></div>
   <label>Note (optional)</label><input id="sNote" placeholder="e.g. Sunday service collection">
   <div class="err" id="sErr"></div>
@@ -199,9 +199,9 @@ svg text{font-family:Montserrat,sans-serif}
 
 <!-- record payment -->
 <dialog id="dPay"><div class="dh"><h3 id="yTitle">RECORD PAYMENT</h3><button data-close>×</button></div>
-<form class="db" id="fPay">
+<form class="db" id="fPay" novalidate>
   <div class="sum" id="ySum"></div>
-  <div class="row2"><div><label>Amount received</label><input id="yAmt" type="number" min="0.01" step="0.01" required></div><div><label>Date</label><input id="yDate" type="date" required></div></div>
+  <div class="row2"><div><label>Amount received</label><input id="yAmt" type="number" min="0.01" step="any" required></div><div><label>Date</label><input id="yDate" type="date" required></div></div>
   <div class="row2"><div><label>Method</label><select id="yMethod"><option>Cash</option><option>MoMo</option><option>Bank transfer</option><option>Cheque</option></select></div><div><label>Reference (optional)</label><input id="yRef" placeholder="MoMo ID / cheque no."></div></div>
   <div class="err" id="yErr"></div>
   <button class="btn gold" style="width:100%;margin-top:6px" id="yBtn">Save &amp; create receipt</button>

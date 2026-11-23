@@ -169,6 +169,21 @@ function handle_(req) {
       if (i < 1) return { ok: false, error: 'Receipt not found' };
       ys.getRange(i + 1, colOf_(ys, 'Status')).setValue('VOID');
       if (req.reason) { const rc = colOf_(ys, 'Reference'); ys.getRange(i + 1, rc).setValue((String(v[i][rc - 1] || '') + ' [void: ' + req.reason + ']').trim()); }
+    } else if (req.action === 'editOffering') {
+      const os = ss.getSheetByName(OFFERINGS);
+      const v = os ? os.getDataRange().getValues() : [];
+      const i = v.findIndex(x => x[0] === req.offeringNo);
+      if (i < 1) return { ok: false, error: 'Seed offering not found' };
+      const amt = Number(req.amount);
+      if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
+      const ac = colOf_(os, 'Amount'), nc = colOf_(os, 'Note'), old = Number(v[i][ac - 1]);
+      os.getRange(i + 1, ac).setValue(amt);
+      if (req.name != null) os.getRange(i + 1, colOf_(os, 'Name')).setValue(String(req.name));
+      if (req.method) os.getRange(i + 1, colOf_(os, 'Method')).setValue(String(req.method));
+      if (req.date) { const dc = colOf_(os, 'Date'), cur = v[i][dc - 1]; const curS = cur instanceof Date ? cur.toISOString().slice(0, 10) : String(cur).slice(0, 10); if (curS !== String(req.date).slice(0, 10)) os.getRange(i + 1, dc).setValue(String(req.date).slice(0, 10)); }
+      let note = req.note != null ? String(req.note) : String(v[i][nc - 1] || '');
+      if (old !== amt) note = (note + ' [amount corrected ' + old + ' -> ' + amt + (req.reason ? ': ' + req.reason : '') + ']').trim();
+      os.getRange(i + 1, nc).setValue(note);
     } else if (req.action === 'voidOffering') {
       const os = ss.getSheetByName(OFFERINGS);
       const v = os ? os.getDataRange().getValues() : [];
