@@ -24,7 +24,7 @@ const demoLoad = () => { try { const j = localStorage.getItem(DKEY); if (j) { co
 const demoSave = d => { try { localStorage.setItem(DKEY, JSON.stringify(d)); } catch {} };
 
 async function api(req) {
-  if (DEMO) return demoApi(req);
+  if (DEMO) { const lag = Number(new URLSearchParams(location.search).get('lag')) || 0; if (lag) await new Promise(r => setTimeout(r, lag)); return demoApi(req); }
   const r = await fetch(C.apiUrl, { method: 'POST', body: JSON.stringify(req) });
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'Request failed');
@@ -88,10 +88,10 @@ function render() {
   const cnt = {}; rows.forEach(r => { const k = 'n:' + r.Name.trim().toLowerCase(); cnt[k] = (cnt[k] || 0) + 1; const p = phoneOf(r.Phone); if (p) cnt['p:' + p] = (cnt['p:' + p] || 0) + 1; });
   const isDup = r => cnt['n:' + r.Name.trim().toLowerCase()] > 1 || (phoneOf(r.Phone) && cnt['p:' + phoneOf(r.Phone)] > 1);
   $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b>${isDup(r) ? ' <span class="pill part" title="Another pledge has the same name or phone">POSSIBLE DUPLICATE</span>' : ''}<div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
-  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap"><button class="btn sm" data-rcp="${esc(o.OfferingNo)}">PDF</button>${S.role === 'finsec' ? ' <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
+  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap">${pend(o.OfferingNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(o.OfferingNo) + '">PDF</button>' + (S.role === 'finsec' ? ' <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : '')}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
   const nm = Object.fromEntries(S.pledges.map(p => [p.PledgeID, p.Name]));
   const rc = valid().slice().sort((a, b) => String(b.ReceiptNo).localeCompare(String(a.ReceiptNo))).slice(0, 15);
-  $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || p.PledgeID)}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
+  $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${pend(p.ReceiptNo) ? '…' : esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || '')}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n">${pend(p.ReceiptNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(p.ReceiptNo) + '">PDF</button>'}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
   document.querySelectorAll('.tonly').forEach(e => e.classList.toggle('hidden', S.role !== 'finsec'));
 }
 function statusBlock(T) {
@@ -117,7 +117,7 @@ function pledgeDialog(id) {
   const allPays = S.payments.filter(p => p.PledgeID === id).sort((x, y) => String(x.ReceiptNo).localeCompare(String(y.ReceiptNo)));
   $('#pBody').innerHTML = `<div class="sum"><div><b>${money0(r.pledged)}</b><span>Pledged</span></div><div><b style="color:var(--green)">${money0(r.paid)}</b><span>Paid</span></div><div><b style="color:var(--red)">${money0(Math.max(0, r.bal))}</b><span>Balance</span></div></div>
   <div style="font-size:13px;color:var(--mute);margin-bottom:8px">${esc(phoneOf(r.Phone)) || 'No phone recorded'} · <b>${r.months} month${r.months > 1 ? 's' : ''}</b> × ${money0(r.monthly)} · ${esc(r.Source)} · ${esc(String(r.Timestamp).slice(0, 10))}${r.Note ? '<br><i>“' + esc(r.Note) + '”</i>' : ''}</div>
-  <table class="hist"><thead><tr><th>Receipt</th><th>Date</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead><tbody>${allPays.length ? allPays.map(p => isVoid(p) ? `<tr style="opacity:.55;text-decoration:line-through"><td>${esc(p.ReceiptNo)}</td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="text-decoration:none"><span class="pill none">VOID</span></td></tr>` : `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="white-space:nowrap"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button> <button class="btn sm ghost" data-wa="${esc(p.ReceiptNo)}">WhatsApp</button>${t ? ' <button class="btn sm ghost" data-voidp="' + esc(p.ReceiptNo) + '">Void</button>' : ''}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>'}</tbody></table>
+  <table class="hist"><thead><tr><th>Receipt</th><th>Date</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead><tbody>${allPays.length ? allPays.map(p => isVoid(p) ? `<tr style="opacity:.55;text-decoration:line-through"><td>${esc(p.ReceiptNo)}</td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="text-decoration:none"><span class="pill none">VOID</span></td></tr>` : pend(p.ReceiptNo) ? `<tr><td>…</td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><span style="color:var(--mute)">saving…</span></td></tr>` : `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="white-space:nowrap"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button> <button class="btn sm ghost" data-wa="${esc(p.ReceiptNo)}">WhatsApp</button>${t ? ' <button class="btn sm ghost" data-voidp="' + esc(p.ReceiptNo) + '">Void</button>' : ''}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>'}</tbody></table>
   ${t ? `<button class="btn gold" style="width:100%;margin-top:14px" data-pay="${esc(r.PledgeID)}" ${r.bal <= 0 ? 'disabled' : ''}>+ Record payment</button>
   <div style="display:flex;gap:10px;margin-top:10px"><button class="btn ghost" style="flex:1" data-edit="${esc(r.PledgeID)}">Edit details</button><button class="btn ghost" style="flex:1;color:var(--red);border-color:var(--red)" data-del="${esc(r.PledgeID)}" ${r.pays.length ? 'disabled title="Void its payments first"' : ''}>Remove pledge</button></div>${r.pays.length ? '<div style="font-size:12px;color:var(--mute);margin-top:6px">To remove this pledge, first void its payments.</div>' : ''}` : ''}`;
   openD($('#dPledge'));
@@ -151,10 +151,25 @@ function applyLocal(req, created) {
   else if (req.action === 'voidPayment') { const p = S.payments.find(x => x.ReceiptNo === req.receiptNo); if (p) p.Status = 'VOID'; }
   else if (req.action === 'voidOffering') S.offerings = S.offerings.filter(o => o.OfferingNo !== req.offeringNo);
 }
-// Adds wait for the server (it assigns the number). Edits, removals and voids show instantly and sync in the background.
+// Everything shows on screen instantly and syncs in the background. Adds get a temporary id until the server assigns the real number.
+const pend = id => String(id).startsWith('tmp');
+let tmpN = 0;
 async function mutate(req, okMsg) {
   const full = { ...req, code: S.code };
-  if (req.action.startsWith('add')) { const j = await api(full); const created = j.created || {}; applyLocal(req, created); render(); toast(okMsg); return created; }
+  if (req.action.startsWith('add')) {
+    const tmp = 'tmp' + (++tmpN);
+    applyLocal(req, { PledgeID: tmp, ReceiptNo: tmp, OfferingNo: tmp }); render(); toast('Saving…');
+    try {
+      const j = await api(full), c = j.created || {};
+      if (req.action === 'addPledge') { const p = S.pledges.find(x => x.PledgeID === tmp); if (p) p.PledgeID = c.PledgeID; S.payments.forEach(y => { if (y.PledgeID === tmp) y.PledgeID = c.PledgeID; }); }
+      if (req.action === 'addPayment') { const y = S.payments.find(x => x.ReceiptNo === tmp); if (y) y.ReceiptNo = c.ReceiptNo; }
+      if (req.action === 'addOffering') { const o = S.offerings.find(x => x.OfferingNo === tmp); if (o) o.OfferingNo = c.OfferingNo; }
+      render(); toast(okMsg); return c;
+    } catch (er) {
+      S.pledges = S.pledges.filter(x => x.PledgeID !== tmp); S.payments = S.payments.filter(x => x.ReceiptNo !== tmp); S.offerings = S.offerings.filter(x => x.OfferingNo !== tmp);
+      render(); throw er;
+    }
+  }
   const snap = JSON.stringify({ p: S.pledges, y: S.payments, o: S.offerings });
   applyLocal(req); render(); toast(okMsg);
   api(full).catch(er => { const s = JSON.parse(snap); S.pledges = s.p; S.payments = s.y; S.offerings = s.o; render(); toast('Not saved: ' + er.message + ' (change undone)'); });
@@ -252,37 +267,31 @@ document.addEventListener('click', e => {
   if (t.dataset.rcp) return downloadReceipt(t.dataset.rcp);
   if (t.dataset.wa) { window.open(waLink(t.dataset.wa), '_blank'); toast('Download the PDF too and attach it in WhatsApp'); return; }
   if (t.dataset.pay) return payDialog(t.dataset.pay);
-  if (t.classList.contains('row')) pledgeDialog(t.dataset.id);
+  if (t.classList.contains('row')) { if (pend(t.dataset.id)) return toast('Still saving this pledge, one moment…'); pledgeDialog(t.dataset.id); }
 });
-const busy = (btn, on, label) => { btn.disabled = on; if (on) { btn.dataset.l = btn.textContent; btn.textContent = label || 'Saving…'; } else if (btn.dataset.l) btn.textContent = btn.dataset.l; };
 $('#fEdit').addEventListener('submit', e => {
   e.preventDefault(); const id = e.target.dataset.id;
   $('#dEdit').close();
   mutate({ action: 'editPledge', id, name: $('#eName').value.trim(), phone: $('#ePhone').value.trim(), amount: $('#eAmt').value, months: $('#eMonths').value, note: $('#eNote').value.trim() }, 'Pledge updated');
 });
+const failed = er => toast('Not saved: ' + er.message);
 $('#addSeed').onclick = () => { $('#fSeed').reset(); $('#sDate').value = new Date().toISOString().slice(0, 10); $('#sErr').textContent = ''; openD($('#dSeed')); };
-$('#fSeed').addEventListener('submit', async e => {
-  e.preventDefault(); const btn = $('#sBtn'); busy(btn, true); $('#sErr').textContent = '';
-  try {
-    const c = await mutate({ action: 'addOffering', name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, 'Seed offering recorded');
-    $('#dSeed').close(); if (c.OfferingNo) downloadReceipt(c.OfferingNo);
-  } catch (er) { $('#sErr').textContent = er.message; }
-  busy(btn, false);
+$('#fSeed').addEventListener('submit', e => {
+  e.preventDefault(); $('#dSeed').close();
+  mutate({ action: 'addOffering', name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, 'Seed offering recorded')
+    .then(c => { if (c.OfferingNo) downloadReceipt(c.OfferingNo); }).catch(failed);
 });
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
-$('#fAdd').addEventListener('submit', async e => {
-  e.preventDefault(); const btn = e.target.querySelector('button.btn'); busy(btn, true); $('#aErr').textContent = '';
-  try { await mutate({ action: 'addPledge', name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }, 'Pledge saved'); $('#dAdd').close(); }
-  catch (er) { $('#aErr').textContent = er.message; }
-  busy(btn, false);
+$('#fAdd').addEventListener('submit', e => {
+  e.preventDefault(); $('#dAdd').close();
+  mutate({ action: 'addPledge', name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }, 'Pledge saved').catch(failed);
 });
-$('#fPay').addEventListener('submit', async e => {
-  e.preventDefault(); const id = e.target.dataset.id, btn = $('#yBtn'); $('#yErr').textContent = ''; busy(btn, true);
-  try {
-    const c = await mutate({ action: 'addPayment', pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() }, 'Payment recorded');
-    $('#dPay').close(); pledgeDialog(id); if (c.ReceiptNo) downloadReceipt(c.ReceiptNo);
-  } catch (er) { $('#yErr').textContent = er.message; }
-  busy(btn, false);
+$('#fPay').addEventListener('submit', e => {
+  e.preventDefault(); const id = e.target.dataset.id;
+  $('#dPay').close();
+  const p = mutate({ action: 'addPayment', pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() }, 'Payment recorded');
+  pledgeDialog(id);
+  p.then(c => { if ($('#dPledge').open) pledgeDialog(id); if (c.ReceiptNo) downloadReceipt(c.ReceiptNo); }).catch(er => { failed(er); if ($('#dPledge').open) pledgeDialog(id); });
 });
 const saved = store.get('code'); if (saved) enter(saved).catch(() => store.del('code'));
 })();
