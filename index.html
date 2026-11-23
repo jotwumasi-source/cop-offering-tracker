@@ -167,6 +167,25 @@ svg text{font-family:Montserrat,sans-serif}
   <button class="btn gold" style="width:100%;margin-top:6px">Save pledge</button>
 </form></dialog>
 
+<!-- edit pledge -->
+<dialog id="dEdit"><div class="dh"><h3>EDIT PLEDGE</h3><button data-close>×</button></div>
+<form class="db" id="fEdit">
+  <label>Full name</label><input id="eName" required>
+  <div class="row2"><div><label>Phone / WhatsApp</label><input id="ePhone" inputmode="tel"></div><div><label>Pledge amount</label><input id="eAmt" type="number" min="1" step="0.01" required></div></div>
+  <label>Instalment months</label><input id="eMonths" type="number" min="1" max="24" step="1" required>
+  <label>Note</label><input id="eNote">
+  <div class="err" id="eErr"></div>
+  <button class="btn gold" style="width:100%;margin-top:6px" id="eBtn">Save changes</button>
+</form></dialog>
+
+<!-- confirm -->
+<dialog id="dConfirm"><div class="dh"><h3 id="cTitle">CONFIRM</h3><button data-close>×</button></div>
+<form class="db" id="fConfirm" method="dialog">
+  <div id="cText" style="font-size:14px;line-height:1.5"></div>
+  <label>Reason (optional, kept in the record)</label><input id="cReason" placeholder="e.g. duplicate entry">
+  <div style="display:flex;gap:10px;margin-top:14px"><button type="button" class="btn ghost" style="flex:1" id="cNo">Cancel</button><button type="submit" class="btn" style="flex:1;background:#c0392b" id="cYes">Confirm</button></div>
+</form></dialog>
+
 <!-- seed offering -->
 <dialog id="dSeed"><div class="dh"><h3>SEED CASH OFFERING</h3><button data-close>×</button></div>
 <form class="db" id="fSeed">

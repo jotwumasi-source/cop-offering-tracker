@@ -14,9 +14,9 @@ const PLEDGES = 'Pledges';
 const PAYMENTS = 'Payments';
 const OFFERINGS = 'Offerings';
 const FORM_SHEET = 'Form Responses 1';
-const O_HEAD = ['OfferingNo', 'Date', 'Name', 'Amount', 'Method', 'Note', 'RecordedBy', 'Timestamp'];
-const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Source', 'FormTs', 'Months'];
-const Y_HEAD = ['ReceiptNo', 'PledgeID', 'Date', 'Amount', 'Method', 'Reference', 'RecordedBy', 'Timestamp'];
+const O_HEAD = ['OfferingNo', 'Date', 'Name', 'Amount', 'Method', 'Note', 'RecordedBy', 'Timestamp', 'Status'];
+const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Source', 'FormTs', 'Months', 'Status'];
+const Y_HEAD = ['ReceiptNo', 'PledgeID', 'Date', 'Amount', 'Method', 'Reference', 'RecordedBy', 'Timestamp', 'Status'];
 
 function setup() {
   const ss = SpreadsheetApp.getActive();
@@ -41,7 +41,7 @@ function setup() {
 // Adds any missing column headers to existing sheets (safe to run repeatedly).
 function ensureHeaders_() {
   const ss = SpreadsheetApp.getActive();
-  [[PLEDGES, P_HEAD]].forEach(([n, h]) => {
+  [[PLEDGES, P_HEAD], [PAYMENTS, Y_HEAD], [OFFERINGS, O_HEAD]].forEach(([n, h]) => {
     const sh = ss.getSheetByName(n); if (!sh) return;
     const cur = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
     h.forEach(k => { if (cur.indexOf(k) < 0) { sh.getRange(1, cur.length + 1).setValue(k).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff'); cur.push(k); } });
@@ -93,6 +93,15 @@ function syncForm_() {
   });
 }
 
+function colOf_(sh, name) {
+  const h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  const i = h.indexOf(name);
+  if (i < 0) throw new Error('Column missing: ' + name);
+  return i + 1;
+}
+
+function isVoidRow_(r) { return String(r.Status || '').toUpperCase() === 'VOID' || String(r.Method || '').toUpperCase() === 'VOID'; }
+
 function nextId_(sh, prefix, pad) {
   let max = 0;
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(r => {
@@ -128,7 +137,8 @@ function handle_(req) {
       const v = ps.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.id);
       if (i < 1) return { ok: false, error: 'Pledge not found' };
-      if (req.name != null) ps.getRange(i + 1, 3).setValue(req.name);
+      if (req.note != null) ps.getRange(i + 1, colOf_(ps, 'Note')).setValue(String(req.note));
+      if (req.name != null && String(req.name).trim()) ps.getRange(i + 1, 3).setValue(String(req.name).trim());
       if (req.phone != null) ps.getRange(i + 1, 4).setNumberFormat('@').setValue(String(req.phone));
       if (req.amount != null && Number(req.amount) > 0) ps.getRange(i + 1, 5).setValue(Number(req.amount));
       if (req.months != null && parseInt(req.months, 10) > 0) ps.getRange(i + 1, v[0].indexOf('Months') + 1).setValue(parseInt(req.months, 10));
@@ -144,11 +154,27 @@ function handle_(req) {
       const os = ss.getSheetByName(OFFERINGS) || ss.insertSheet(OFFERINGS);
       if (os.getLastRow() === 0) os.getRange(1, 1, 1, O_HEAD.length).setValues([O_HEAD]).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff');
       os.appendRow([nextId_(os, 'SO-', 4), req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Financial Secretary', new Date().toISOString()]);
+    } else if (req.action === 'deletePledge') {
+      const v = ps.getDataRange().getValues();
+      const i = v.findIndex(x => x[0] === req.id);
+      if (i < 1) return { ok: false, error: 'Pledge not found' };
+      const pays = rows_(PAYMENTS).filter(p => p.PledgeID === req.id && !isVoidRow_(p));
+      if (pays.length) return { ok: false, error: 'This pledge has payments. Void them first.' };
+      ps.getRange(i + 1, colOf_(ps, 'Status')).setValue('REMOVED');
+      if (req.reason) { const nc = colOf_(ps, 'Note'); ps.getRange(i + 1, nc).setValue((String(v[i][nc - 1] || '') + ' [removed: ' + req.reason + ']').trim()); }
     } else if (req.action === 'voidPayment') {
       const v = ys.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.receiptNo);
       if (i < 1) return { ok: false, error: 'Receipt not found' };
-      ys.getRange(i + 1, 5).setValue('VOID'); // kept for audit; amount stays, method marked VOID
+      ys.getRange(i + 1, colOf_(ys, 'Status')).setValue('VOID');
+      if (req.reason) { const rc = colOf_(ys, 'Reference'); ys.getRange(i + 1, rc).setValue((String(v[i][rc - 1] || '') + ' [void: ' + req.reason + ']').trim()); }
+    } else if (req.action === 'voidOffering') {
+      const os = ss.getSheetByName(OFFERINGS);
+      const v = os ? os.getDataRange().getValues() : [];
+      const i = v.findIndex(x => x[0] === req.offeringNo);
+      if (i < 1) return { ok: false, error: 'Seed offering not found' };
+      os.getRange(i + 1, colOf_(os, 'Status')).setValue('VOID');
+      if (req.reason) { const nc = colOf_(os, 'Note'); os.getRange(i + 1, nc).setValue((String(v[i][nc - 1] || '') + ' [void: ' + req.reason + ']').trim()); }
     } else return { ok: false, error: 'Unknown action' };
     return Object.assign({ ok: true, role: r }, payload_());
   } finally { lock.releaseLock(); }

@@ -39,13 +39,19 @@ function demoApi(r) {
     if (r.action === 'addPledge') d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual', Months: Math.max(1, parseInt(r.months, 10) || 1) });
     if (r.action === 'addPayment') d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: 'Financial Secretary' });
     if (r.action === 'addOffering') d.offerings.push({ OfferingNo: 'SO-' + String(d.offerings.length + 1).padStart(4, '0'), Date: r.date, Name: r.name || '', Amount: +r.amount, Method: r.method, Note: r.note || '' });
+    if (r.action === 'editPledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (r.name != null && String(r.name).trim()) p.Name = String(r.name).trim(); if (r.phone != null) p.Phone = String(r.phone); if (+r.amount > 0) p.Amount = +r.amount; if (parseInt(r.months, 10) > 0) p.Months = parseInt(r.months, 10); if (r.note != null) p.Note = String(r.note); }
+    if (r.action === 'deletePledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (d.payments.some(x => x.PledgeID === r.id && !isVoid(x))) throw new Error('This pledge has payments. Void them first.'); p.Status = 'REMOVED'; }
+    if (r.action === 'voidPayment') { const p = d.payments.find(x => x.ReceiptNo === r.receiptNo); if (!p) throw new Error('Receipt not found'); p.Status = 'VOID'; }
+    if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); o.Status = 'VOID'; }
     demoSave(d);
   }
   return Promise.resolve({ ok: true, role, pledges: d.pledges, payments: d.payments, offerings: d.offerings });
 }
 
 /* ------------------------------------------------------------ calculations */
-const valid = () => S.payments.filter(p => String(p.Method).toUpperCase() !== 'VOID');
+const isVoid = x => String(x.Status || '').toUpperCase() === 'VOID' || String(x.Method || '').toUpperCase() === 'VOID';
+const valid = () => S.payments.filter(p => !isVoid(p));
+function setData(j) { S.pledges = (j.pledges || []).filter(p => String(p.Status || '').toUpperCase() !== 'REMOVED'); S.payments = j.payments || []; S.offerings = (j.offerings || []).filter(o => !isVoid(o)); }
 function model() {
   const by = {}; valid().forEach(p => { (by[p.PledgeID] = by[p.PledgeID] || []).push(p); });
   const rows = S.pledges.map(pl => {
@@ -76,8 +82,10 @@ function render() {
   const q = $('#q').value.trim().toLowerCase(), f = $('#flt').value;
   const list = rows.filter(r => (!q || (r.Name + ' ' + r.Phone).toLowerCase().includes(q)) && (f === 'all' || (f === 'open' ? r.status !== 'paid' : r.status === f)));
   const lab = { none: 'NOT STARTED', part: 'PART-PAID', paid: 'PAID' };
-  $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b><div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
-  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(o.OfferingNo)}">PDF</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
+  const cnt = {}; rows.forEach(r => { const k = 'n:' + r.Name.trim().toLowerCase(); cnt[k] = (cnt[k] || 0) + 1; const p = phoneOf(r.Phone); if (p) cnt['p:' + p] = (cnt['p:' + p] || 0) + 1; });
+  const isDup = r => cnt['n:' + r.Name.trim().toLowerCase()] > 1 || (phoneOf(r.Phone) && cnt['p:' + phoneOf(r.Phone)] > 1);
+  $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b>${isDup(r) ? ' <span class="pill part" title="Another pledge has the same name or phone">POSSIBLE DUPLICATE</span>' : ''}<div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
+  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap"><button class="btn sm" data-rcp="${esc(o.OfferingNo)}">PDF</button>${S.role === 'finsec' ? ' <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
   const nm = Object.fromEntries(S.pledges.map(p => [p.PledgeID, p.Name]));
   const rc = valid().slice().sort((a, b) => String(b.ReceiptNo).localeCompare(String(a.ReceiptNo))).slice(0, 15);
   $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || p.PledgeID)}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
@@ -103,10 +111,12 @@ function pledgeDialog(id) {
   const r = model().rows.find(x => x.PledgeID === id); if (!r) return;
   $('#pTitle').textContent = r.Name.toUpperCase();
   const t = S.role === 'finsec';
+  const allPays = S.payments.filter(p => p.PledgeID === id).sort((x, y) => String(x.ReceiptNo).localeCompare(String(y.ReceiptNo)));
   $('#pBody').innerHTML = `<div class="sum"><div><b>${money0(r.pledged)}</b><span>Pledged</span></div><div><b style="color:var(--green)">${money0(r.paid)}</b><span>Paid</span></div><div><b style="color:var(--red)">${money0(Math.max(0, r.bal))}</b><span>Balance</span></div></div>
   <div style="font-size:13px;color:var(--mute);margin-bottom:8px">${esc(phoneOf(r.Phone)) || 'No phone recorded'} · <b>${r.months} month${r.months > 1 ? 's' : ''}</b> × ${money0(r.monthly)} · ${esc(r.Source)} · ${esc(String(r.Timestamp).slice(0, 10))}${r.Note ? '<br><i>“' + esc(r.Note) + '”</i>' : ''}</div>
-  <table class="hist"><thead><tr><th>Receipt</th><th>Date</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead><tbody>${r.pays.length ? r.pays.map(p => `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button> <button class="btn sm ghost" data-wa="${esc(p.ReceiptNo)}">WhatsApp</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>'}</tbody></table>
-  ${t ? `<button class="btn gold" style="width:100%;margin-top:14px" data-pay="${esc(r.PledgeID)}" ${r.bal <= 0 ? 'disabled' : ''}>+ Record payment</button>` : ''}`;
+  <table class="hist"><thead><tr><th>Receipt</th><th>Date</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead><tbody>${allPays.length ? allPays.map(p => isVoid(p) ? `<tr style="opacity:.55;text-decoration:line-through"><td>${esc(p.ReceiptNo)}</td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="text-decoration:none"><span class="pill none">VOID</span></td></tr>` : `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n" style="white-space:nowrap"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button> <button class="btn sm ghost" data-wa="${esc(p.ReceiptNo)}">WhatsApp</button>${t ? ' <button class="btn sm ghost" data-voidp="' + esc(p.ReceiptNo) + '">Void</button>' : ''}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>'}</tbody></table>
+  ${t ? `<button class="btn gold" style="width:100%;margin-top:14px" data-pay="${esc(r.PledgeID)}" ${r.bal <= 0 ? 'disabled' : ''}>+ Record payment</button>
+  <div style="display:flex;gap:10px;margin-top:10px"><button class="btn ghost" style="flex:1" data-edit="${esc(r.PledgeID)}">Edit details</button><button class="btn ghost" style="flex:1;color:var(--red);border-color:var(--red)" data-del="${esc(r.PledgeID)}" ${r.pays.length ? 'disabled title="Void its payments first"' : ''}>Remove pledge</button></div>${r.pays.length ? '<div style="font-size:12px;color:var(--mute);margin-top:6px">To remove this pledge, first void its payments.</div>' : ''}` : ''}`;
   openD($('#dPledge'));
 }
 function payDialog(id) {
@@ -117,6 +127,22 @@ function payDialog(id) {
   $('#yAmt').value = r.bal > 0 ? r.bal : ''; $('#yAmt').max = Math.max(0, r.bal);
   $('#yDate').value = new Date().toISOString().slice(0, 10); $('#yRef').value = ''; $('#yErr').textContent = '';
   $('#fPay').dataset.id = id; openD($('#dPay'));
+}
+
+function confirmAction(title, text, okLabel) {
+  return new Promise(res => {
+    $('#cTitle').textContent = title; $('#cText').innerHTML = text; $('#cReason').value = ''; $('#cYes').textContent = okLabel || 'Confirm';
+    const d = $('#dConfirm'); let done = false;
+    const fin = v => { if (done) return; done = true; $('#fConfirm').removeEventListener('submit', onS); $('#cNo').removeEventListener('click', onN); d.removeEventListener('close', onC); if (d.open) d.close(); res(v); };
+    const onS = e => { e.preventDefault(); fin($('#cReason').value.trim() || ''); }, onN = () => fin(null), onC = () => fin(null);
+    $('#fConfirm').addEventListener('submit', onS); $('#cNo').addEventListener('click', onN); d.addEventListener('close', onC); d.showModal();
+  });
+}
+async function mutate(req, okMsg) { const j = await api({ ...req, code: S.code }); setData(j); render(); toast(okMsg); }
+function editDialog(id) {
+  const p = S.pledges.find(x => x.PledgeID === id); $('#dPledge').close();
+  $('#eName').value = p.Name; $('#ePhone').value = phoneOf(p.Phone); $('#eAmt').value = p.Amount; $('#eMonths').value = Math.max(1, parseInt(p.Months, 10) || 1); $('#eNote').value = p.Note || ''; $('#eErr').textContent = '';
+  $('#fEdit').dataset.id = id; openD($('#dEdit'));
 }
 
 /* ------------------------------------------------------------ receipts */
@@ -175,7 +201,7 @@ function waLink(no) {
 
 /* ------------------------------------------------------------ events */
 function toast(t) { const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.append(e); setTimeout(() => e.remove(), 2800); }
-async function load() { const j = await api({ action: 'load', code: S.code }); S.role = j.role; S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); }
+async function load() { const j = await api({ action: 'load', code: S.code }); S.role = j.role; setData(j); render(); }
 async function enter(code) {
   S.code = code; await load(); store.set('code', code);
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
@@ -197,11 +223,21 @@ $('#csv').onclick = () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.map(l => l.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' })); a.download = 'pledges.csv'; a.click();
 };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],tr.row'); if (!t) return;
+  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],[data-edit],[data-del],[data-voidp],[data-voido],tr.row'); if (!t) return;
+  if (t.dataset.edit) return editDialog(t.dataset.edit);
+  if (t.dataset.del) { const p = S.pledges.find(x => x.PledgeID === t.dataset.del); $('#dPledge').close(); return confirmAction('REMOVE PLEDGE', 'Remove the pledge of <b>' + esc(p.Name) + '</b> (' + money(p.Amount) + ')? It disappears from the totals. The row stays in the Sheet marked REMOVED.', 'Remove').then(r => { if (r !== null) mutate({ action: 'deletePledge', id: p.PledgeID, reason: r }, 'Pledge removed').catch(er => toast(er.message)); }); }
+  if (t.dataset.voidp) { const p = S.payments.find(x => x.ReceiptNo === t.dataset.voidp); $('#dPledge').close(); return confirmAction('VOID PAYMENT', 'Void receipt <b>' + esc(p.ReceiptNo) + '</b> (' + money(p.Amount) + ')? The amount is taken out of the totals and the pledge balance goes back up. The receipt stays in the Sheet marked VOID. Record the correct payment afterwards if needed.', 'Void payment').then(r => { if (r !== null) mutate({ action: 'voidPayment', receiptNo: p.ReceiptNo, reason: r }, 'Receipt ' + p.ReceiptNo + ' voided').catch(er => toast(er.message)); }); }
+  if (t.dataset.voido) { const o = S.offerings.find(x => x.OfferingNo === t.dataset.voido); return confirmAction('VOID SEED OFFERING', 'Void <b>' + esc(o.OfferingNo) + '</b> (' + money(o.Amount) + ')? It is taken out of the total raised. The row stays in the Sheet marked VOID.', 'Void entry').then(r => { if (r !== null) mutate({ action: 'voidOffering', offeringNo: o.OfferingNo, reason: r }, o.OfferingNo + ' voided').catch(er => toast(er.message)); }); }
   if (t.dataset.rcp) return downloadReceipt(t.dataset.rcp);
   if (t.dataset.wa) { window.open(waLink(t.dataset.wa), '_blank'); toast('Download the PDF too and attach it in WhatsApp'); return; }
   if (t.dataset.pay) return payDialog(t.dataset.pay);
   if (t.classList.contains('row')) pledgeDialog(t.dataset.id);
+});
+$('#fEdit').addEventListener('submit', async e => {
+  e.preventDefault(); const btn = $('#eBtn'); btn.disabled = true; $('#eErr').textContent = '';
+  try { await mutate({ action: 'editPledge', id: e.target.dataset.id, name: $('#eName').value.trim(), phone: $('#ePhone').value.trim(), amount: $('#eAmt').value, months: $('#eMonths').value, note: $('#eNote').value.trim() }, 'Pledge updated'); $('#dEdit').close(); }
+  catch (er) { $('#eErr').textContent = er.message; }
+  btn.disabled = false;
 });
 $('#addSeed').onclick = () => { $('#fSeed').reset(); $('#sDate').value = new Date().toISOString().slice(0, 10); $('#sErr').textContent = ''; openD($('#dSeed')); };
 $('#fSeed').addEventListener('submit', async e => {
@@ -209,7 +245,7 @@ $('#fSeed').addEventListener('submit', async e => {
   try {
     const before = new Set(S.offerings.map(o => o.OfferingNo));
     const j = await api({ action: 'addOffering', code: S.code, name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() });
-    S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); $('#dSeed').close();
+    setData(j); render(); $('#dSeed').close();
     const no = S.offerings.find(o => !before.has(o.OfferingNo)); if (no) { await downloadReceipt(no.OfferingNo); toast('Seed offering recorded'); }
   } catch (er) { $('#sErr').textContent = er.message; }
   btn.disabled = false;
@@ -217,7 +253,7 @@ $('#fSeed').addEventListener('submit', async e => {
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
 $('#fAdd').addEventListener('submit', async e => {
   e.preventDefault();
-  try { const j = await api({ action: 'addPledge', code: S.code, name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }); S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); $('#dAdd').close(); toast('Pledge saved'); }
+  try { const j = await api({ action: 'addPledge', code: S.code, name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }); setData(j); render(); $('#dAdd').close(); toast('Pledge saved'); }
   catch (er) { $('#aErr').textContent = er.message; }
 });
 $('#fPay').addEventListener('submit', async e => {
@@ -225,7 +261,7 @@ $('#fPay').addEventListener('submit', async e => {
   try {
     const before = new Set(S.payments.map(p => p.ReceiptNo));
     const j = await api({ action: 'addPayment', code: S.code, pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() });
-    S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); $('#dPay').close();
+    setData(j); render(); $('#dPay').close();
     const np = S.payments.find(p => !before.has(p.ReceiptNo)); if (np) { await downloadReceipt(np.ReceiptNo); pledgeDialog(id); }
   } catch (er) { $('#yErr').textContent = er.message; }
   btn.disabled = false;
