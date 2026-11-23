@@ -204,8 +204,8 @@ function payload_(me) {
   return {
     me: me, role: 'admin',
     pledges: rows_(PLEDGES), payments: rows_(PAYMENTS), offerings: rows_(OFFERINGS),
-    log: last, releases: rows_(RELEASES_SHEET).reverse(),
-    users: USERS.map(x => ({ u: x.u, name: x.name })),
+    log: me && me.it ? last : [], releases: me && me.it ? rows_(RELEASES_SHEET).reverse() : [],
+    users: me && me.it ? USERS.map(x => ({ u: x.u, name: x.name })) : [],
     serverTime: new Date().toISOString()
   };
 }
