@@ -91,6 +91,7 @@ function render() {
   const seed = S.offerings.reduce((s, o) => s + Number(o.Amount || 0), 0), raised = T.received + seed;
   $('#kpis').innerHTML = [
     ['g', 'Total raised', money0(raised), 'pledge payments + seed offering'],
+    ['', 'Total expected', money0(T.pledged + seed), 'all pledges ' + money0(T.pledged) + ' + seed ' + money0(seed)],
     ['', 'Total pledged', money0(T.pledged), T.n + ' pledgers'],
     ['', 'Pledge payments', money0(T.received), valid().length + ' payments · ' + pct.toFixed(1) + '% of pledges'],
     ['o', 'Seed offering', money0(seed), S.offerings.length + ' entries (not a pledge)'],
@@ -377,4 +378,11 @@ $('#fPay').addEventListener('submit', e => {
   p.then(c => { if ($('#dPledge').open) pledgeDialog(id); if (c.ReceiptNo) downloadReceipt(c.ReceiptNo); }).catch(er => { failed(er); if ($('#dPledge').open) pledgeDialog(id); });
 });
 const saved = store.get('token'); if (saved) { S.token = saved; showApp().catch(() => store.del('token')); }
+})();
+
+/* live date & time */
+(function () {
+  const el = document.getElementById('clock'); if (!el) return;
+  const tick = () => { const d = new Date(); el.innerHTML = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + '<br>' + d.toLocaleTimeString('en-GB'); };
+  tick(); setInterval(tick, 1000);
 })();
