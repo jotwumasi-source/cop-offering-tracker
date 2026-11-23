@@ -12,13 +12,15 @@
 
 const PLEDGES = 'Pledges';
 const PAYMENTS = 'Payments';
+const OFFERINGS = 'Offerings';
 const FORM_SHEET = 'Form Responses 1';
+const O_HEAD = ['OfferingNo', 'Date', 'Name', 'Amount', 'Method', 'Note', 'RecordedBy', 'Timestamp'];
 const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Source', 'FormTs'];
 const Y_HEAD = ['ReceiptNo', 'PledgeID', 'Date', 'Amount', 'Method', 'Reference', 'RecordedBy', 'Timestamp'];
 
 function setup() {
   const ss = SpreadsheetApp.getActive();
-  [[PLEDGES, P_HEAD], [PAYMENTS, Y_HEAD]].forEach(([n, h]) => {
+  [[PLEDGES, P_HEAD], [PAYMENTS, Y_HEAD], [OFFERINGS, O_HEAD]].forEach(([n, h]) => {
     let sh = ss.getSheetByName(n) || ss.insertSheet(n);
     if (sh.getLastRow() === 0) {
       sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff');
@@ -65,14 +67,16 @@ function syncForm_() {
   const v = fs.getDataRange().getValues();
   const h = v.shift().map(String);
   const col = re => h.findIndex(x => re.test(x));
-  const cT = 0, cA = col(/amount/i), cN = col(/name/i), cNote = col(/note|prayer/i);
+  const cT = 0, cA = col(/amount/i), cN = col(/name/i), cNote = col(/note|prayer/i), cPh = col(/phone|whatsapp/i);
   let n = ps.getLastRow();
   v.forEach(r => {
     const ts = r[cT] instanceof Date ? r[cT].toISOString() : String(r[cT]);
     if (!ts || seen[ts]) return;
     const amt = parseFloat(String(r[cA]).replace(/[^0-9.]/g, '')) || 0;
     n++;
+    const ph = cPh >= 0 ? String(r[cPh] || '').replace(/[^0-9+]/g, '') : '';
     ps.appendRow(['P' + String(n - 1).padStart(4, '0'), ts, String(r[cN] || '').trim(), '', amt, cNote >= 0 ? r[cNote] : '', 'Form', ts]);
+    ps.getRange(ps.getLastRow(), 4).setNumberFormat('@').setValue(ph);
   });
 }
 
@@ -85,7 +89,7 @@ function nextId_(sh, prefix, pad) {
 }
 
 function payload_() {
-  return { pledges: rows_(PLEDGES), payments: rows_(PAYMENTS), serverTime: new Date().toISOString() };
+  return { pledges: rows_(PLEDGES), payments: rows_(PAYMENTS), offerings: rows_(OFFERINGS), serverTime: new Date().toISOString() };
 }
 
 function handle_(req) {
@@ -104,13 +108,14 @@ function handle_(req) {
     if (req.action === 'addPledge') {
       const amt = Number(req.amount);
       if (!req.name || !(amt > 0)) return { ok: false, error: 'Name and amount required' };
-      ps.appendRow([nextId_(ps, 'P', 4), new Date().toISOString(), req.name, req.phone || '', amt, req.note || '', 'Manual', '']);
+      ps.appendRow([nextId_(ps, 'P', 4), new Date().toISOString(), req.name, '', amt, req.note || '', 'Manual', '']);
+      ps.getRange(ps.getLastRow(), 4).setNumberFormat('@').setValue(String(req.phone || ''));
     } else if (req.action === 'editPledge') {
       const v = ps.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.id);
       if (i < 1) return { ok: false, error: 'Pledge not found' };
       if (req.name != null) ps.getRange(i + 1, 3).setValue(req.name);
-      if (req.phone != null) ps.getRange(i + 1, 4).setValue("'" + req.phone);
+      if (req.phone != null) ps.getRange(i + 1, 4).setNumberFormat('@').setValue(String(req.phone));
       if (req.amount != null && Number(req.amount) > 0) ps.getRange(i + 1, 5).setValue(Number(req.amount));
     } else if (req.action === 'addPayment') {
       const amt = Number(req.amount);
@@ -118,6 +123,12 @@ function handle_(req) {
       if (!ps.getDataRange().getValues().some(x => x[0] === req.pledgeId)) return { ok: false, error: 'Pledge not found' };
       const no = nextId_(ys, 'RCP-', 4);
       ys.appendRow([no, req.pledgeId, req.date || new Date().toISOString().slice(0, 10), amt, req.method || 'Cash', req.reference || '', req.by || 'Treasurer', new Date().toISOString()]);
+    } else if (req.action === 'addOffering') {
+      const amt = Number(req.amount);
+      if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
+      const os = ss.getSheetByName(OFFERINGS) || ss.insertSheet(OFFERINGS);
+      if (os.getLastRow() === 0) os.getRange(1, 1, 1, O_HEAD.length).setValues([O_HEAD]).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff');
+      os.appendRow([nextId_(os, 'SO-', 4), req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Treasurer', new Date().toISOString()]);
     } else if (req.action === 'voidPayment') {
       const v = ys.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.receiptNo);

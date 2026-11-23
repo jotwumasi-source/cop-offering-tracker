@@ -136,6 +136,14 @@ svg text{font-family:Montserrat,sans-serif}
   </div>
 
   <div class="card">
+    <div class="tools" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Seed cash offering <span style="font-weight:600;letter-spacing:0;text-transform:none">· not a pledge, added to total raised</span></h2><button class="btn gold sm tonly" id="addSeed">+ Add seed offering</button></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>No.</th><th>Date</th><th>Given by</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead>
+      <tbody id="sbody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
     <h2>Recent receipts</h2>
     <div class="tablewrap"><table>
       <thead><tr><th>Receipt</th><th>Date</th><th>Name</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead>
@@ -156,6 +164,17 @@ svg text{font-family:Montserrat,sans-serif}
   <label>Note (optional)</label><input id="aNote">
   <div class="err" id="aErr"></div>
   <button class="btn gold" style="width:100%;margin-top:6px">Save pledge</button>
+</form></dialog>
+
+<!-- seed offering -->
+<dialog id="dSeed"><div class="dh"><h3>SEED CASH OFFERING</h3><button data-close>×</button></div>
+<form class="db" id="fSeed">
+  <div style="font-size:13px;color:var(--mute)">Cash or MoMo given as a seed offering (not a pledge). It is added to the total raised.</div>
+  <div class="row2"><div><label>Amount</label><input id="sAmt" type="number" min="0.01" step="0.01" required></div><div><label>Date</label><input id="sDate" type="date" required></div></div>
+  <div class="row2"><div><label>Method</label><select id="sMethod"><option>Cash</option><option>MoMo</option><option>Bank transfer</option><option>Cheque</option></select></div><div><label>Given by (optional)</label><input id="sName" placeholder="Leave blank if anonymous"></div></div>
+  <label>Note (optional)</label><input id="sNote" placeholder="e.g. Sunday service collection">
+  <div class="err" id="sErr"></div>
+  <button class="btn gold" style="width:100%;margin-top:6px" id="sBtn">Save &amp; create receipt</button>
 </form></dialog>
 
 <!-- record payment -->
