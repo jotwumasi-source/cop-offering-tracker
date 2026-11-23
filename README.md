@@ -1,24 +1,25 @@
 # Offering Tracker — COP English Assembly
 
-Pledge and payment dashboard. The page is static (GitHub Pages); all data lives in a **private Google Sheet** and is only sent to the browser after a valid passcode. No donor data is stored in this repository.
+Pledge and payment dashboard. The page is static (GitHub Pages); all data lives in a **private Google Sheet** and is only sent to the browser after sign-in. No donor data is stored in this repository.
 
-* **View-only passcode** – leadership sees totals, pledgers, balances, receipts.
-* **Financial Secretary passcode** – also adds pledges, records instalments, creates receipts (PDF, branded) and WhatsApp messages.
-* Each pledge carries the **number of instalment months** chosen on the form (monthly amount = pledge ÷ months).
-* Receipts are numbered `RCP-0001…` and show amount, pledge total, paid-to-date and balance.
-* Pledge-form submissions flow into the Sheet automatically.
+## Access
+* Three named accounts only: **Jones Owusu Twumasi** (IT Specialist), **Clara Sakyi Snr**, **Isaac Commey**. Username (`jones`, `clara`, `isaac`) + personal password. All three have full administrative rights.
+* First sign-in uses a one-time temporary password and **must** be replaced by the person's own password.
+* Passwords are stored only as salted hashes. Sessions last 6 hours. Five wrong attempts lock that username for 15 minutes.
+* Only the IT specialist can issue a new temporary password (Activity log → *Reset a password*).
+* The old shared passcodes (view-only, Financial Secretary) are cancelled.
 
-## Go live (≈10 minutes)
+## Accountability
+* **Activity log** (sheet `ActivityLog`, shown on the dashboard): every sign-in, failed sign-in, pledge, payment, edit, void, removal, seed offering and password change, with the person's name and time.
+* **Software updates** (sheet `Releases`, shown on the dashboard): every release is recorded under Jones Owusu Twumasi, IT Specialist. When shipping an update, add it to `RELEASES` in `Code.gs`.
+* Receipts carry the name of the person who recorded the payment.
 
-1. Open the Google Form's **Responses → Link to Sheets** (creates the Sheet; tab is `Form Responses 1`).
-2. In that Sheet: **Extensions → Apps Script**, paste `Code.gs`, save.
-3. Run **`setup`** once (authorise). **View → Logs** shows the two passcodes (change them in *Project Settings → Script properties*: `VIEW_CODE`, `FINSEC_CODE`).
-4. **Deploy → New deployment → Web app** → *Execute as: Me*, *Who has access: Anyone* → copy the Web app URL.
-5. Put the URL in `config.js` (`apiUrl`), commit. Until then the site runs in **demo mode** (try passcodes `view` / `finsec`).
-
-Keep the Sheet itself private (do not share it); the passcodes protect the web page.
+## Go live / update
+1. Paste `Code.gs` into the Sheet's Apps Script project (Extensions → Apps Script) and save.
+2. Run **`setup`** after adding a user to `USERS` (the Execution log shows each new user's temporary password). Run **`selfTest`** to check hashing and sessions.
+3. Deploy → Manage deployments → edit → New version → Deploy (the URL stays the same).
+4. `config.js` holds the Web app URL (`apiUrl`). While empty, the site runs in demo mode (usernames jones / clara / isaac, password `demo1234`).
 
 ## Notes
-* Mistaken payment: in the Sheet, set that row's `Method` to `VOID` (it is then excluded from totals but kept for audit).
-* Phone numbers are not on the pledge form; add them from the dashboard row in the Sheet (`Pledges` → `Phone`) so WhatsApp links work.
+* Mistaken entries are removed or voided, never silently deleted: rows stay in the Sheet marked REMOVED or VOID.
 * Receipts are made in the browser (jsPDF); nothing is emailed or sent automatically.

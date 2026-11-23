@@ -5,7 +5,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const money = n => C.currency + ' ' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const money0 = n => '<span class="cur">' + C.currency + '</span> ' + Math.round(Number(n || 0)).toLocaleString('en-GB');
 const store = { get(k) { try { return sessionStorage.getItem(k); } catch { return null; } }, set(k, v) { try { sessionStorage.setItem(k, v); } catch {} }, del(k) { try { sessionStorage.removeItem(k); } catch {} } };
-let S = { role: null, code: null, pledges: [], payments: [], offerings: [] };
+let S = { role: null, token: null, user: null, pledges: [], payments: [], offerings: [], log: [], releases: [], users: [] };
 const phoneOf = p => { const d = String(p ?? '').replace(/[^0-9+]/g, ''); return d.length === 9 && !d.startsWith('+') ? '0' + d : d; };
 
 /* ------------------------------------------------------------ data layer */
@@ -15,7 +15,7 @@ function demoSeed() {
   const amts = [2000,1500,500,1000,3000,800,600,2500,400,1200,750,5000,300,1000];
   const pledges = names.map((n, i) => ({ PledgeID: 'P' + String(i + 1).padStart(4, '0'), Timestamp: new Date(Date.now() - (14 - i) * 864e5).toISOString(), Name: n, Phone: '024' + String(1000000 + i * 91357).slice(0, 7), Amount: amts[i], Note: '', Source: i % 3 ? 'Form' : 'Manual', Months: [3, 6, 1, 4, 6, 2, 3, 6, 1, 4, 3, 6, 2, 4][i] }));
   const pay = []; let k = 0;
-  const add = (pi, frac, daysAgo, m) => { k++; pay.push({ ReceiptNo: 'RCP-' + String(k).padStart(4, '0'), PledgeID: pledges[pi].PledgeID, Date: new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10), Amount: Math.round(pledges[pi].Amount * frac), Method: m, Reference: '', RecordedBy: 'Financial Secretary' }); };
+  const add = (pi, frac, daysAgo, m) => { k++; pay.push({ ReceiptNo: 'RCP-' + String(k).padStart(4, '0'), PledgeID: pledges[pi].PledgeID, Date: new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10), Amount: Math.round(pledges[pi].Amount * frac), Method: m, Reference: '', RecordedBy: 'Clara Sakyi Snr' }); };
   add(0, 1, 12, 'MoMo'); add(1, .5, 11, 'Cash'); add(2, 1, 10, 'Cash'); add(3, .4, 9, 'MoMo'); add(4, .3, 8, 'Bank transfer'); add(5, 1, 7, 'MoMo'); add(1, .25, 5, 'MoMo'); add(7, .6, 4, 'Cash'); add(3, .3, 3, 'MoMo'); add(9, .5, 2, 'MoMo'); add(11, .2, 1, 'Cash'); add(4, .3, 1, 'MoMo');
   const offerings = [{ OfferingNo: 'SO-0001', Date: new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10), Name: '', Amount: 650, Method: 'Cash', Note: 'Sunday seed offering' }, { OfferingNo: 'SO-0002', Date: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), Name: 'Nana Yaw Sarpong', Amount: 300, Method: 'MoMo', Note: '' }];
   return { pledges, payments: pay, offerings };
@@ -23,33 +23,49 @@ function demoSeed() {
 const demoLoad = () => { try { const j = localStorage.getItem(DKEY); if (j) { const d = JSON.parse(j); if (!d.offerings) { d.offerings = demoSeed().offerings; demoSave(d); } return d; } } catch {} const d = demoSeed(); demoSave(d); return d; };
 const demoSave = d => { try { localStorage.setItem(DKEY, JSON.stringify(d)); } catch {} };
 
+const sessionExpired = () => { store.del('token'); toast('Session expired. Please sign in again.'); setTimeout(() => location.reload(), 1300); };
 async function api(req) {
-  if (DEMO) { const lag = Number(new URLSearchParams(location.search).get('lag')) || 0; if (lag) await new Promise(r => setTimeout(r, lag)); return demoApi(req); }
+  if (DEMO) { const lag = Number(new URLSearchParams(location.search).get('lag')) || 0; if (lag) await new Promise(r => setTimeout(r, lag)); try { return await demoApi(req); } catch (er) { if (er.auth) sessionExpired(); throw er; } }
   const r = await fetch(C.apiUrl, { method: 'POST', body: JSON.stringify(req) });
   const j = await r.json();
-  if (!j.ok) throw new Error(j.error || 'Request failed');
+  if (!j.ok) { if (j.auth) sessionExpired(); const er = new Error(j.error || 'Request failed'); er.mustChange = j.mustChange; throw er; }
   return j;
 }
+
+/* ---- demo backend (sample data only, in this browser) ---- */
+const DEMO_USERS = [{ u: 'jones', name: 'Jones Owusu Twumasi', title: 'IT Specialist', it: true }, { u: 'clara', name: 'Clara Sakyi Snr', title: '' }, { u: 'isaac', name: 'Isaac Commey', title: '' }];
+const DEMO_RELEASES = [['2.0', 'Named user accounts, activity log, software-update record.'], ['1.5', 'Edit seed offerings, clear validation messages.'], ['1.4', 'Faster saves.'], ['1.3', 'Edit, remove, void controls.'], ['1.2', 'Instalment months.'], ['1.1', 'Seed offering and phone numbers.'], ['1.0', 'Dashboard launched.']].map(([v, s]) => ({ Version: v, Date: '2026-11-23', UpdatedBy: 'Jones Owusu Twumasi (IT Specialist)', Summary: s }));
 function demoApi(r) {
-  const role = r.code === 'finsec' ? 'finsec' : r.code === 'view' ? 'viewer' : null;
-  if (!role) throw new Error('Invalid passcode');
   const d = demoLoad();
-  if (r.action !== 'load') {
-    if (role !== 'finsec') throw new Error('Financial Secretary access required');
-    if (r.action === 'addPledge') d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual', Months: Math.max(1, parseInt(r.months, 10) || 1) });
-    if (r.action === 'addPayment') d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: 'Financial Secretary' });
-    if (r.action === 'addOffering') d.offerings.push({ OfferingNo: 'SO-' + String(d.offerings.length + 1).padStart(4, '0'), Date: r.date, Name: r.name || '', Amount: +r.amount, Method: r.method, Note: r.note || '' });
-    if (r.action === 'editPledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (r.name != null && String(r.name).trim()) p.Name = String(r.name).trim(); if (r.phone != null) p.Phone = String(r.phone); if (+r.amount > 0) p.Amount = +r.amount; if (parseInt(r.months, 10) > 0) p.Months = parseInt(r.months, 10); if (r.note != null) p.Note = String(r.note); }
-    if (r.action === 'deletePledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) throw new Error('Pledge not found'); if (d.payments.some(x => x.PledgeID === r.id && !isVoid(x))) throw new Error('This pledge has payments. Void them first.'); p.Status = 'REMOVED'; }
-    if (r.action === 'voidPayment') { const p = d.payments.find(x => x.ReceiptNo === r.receiptNo); if (!p) throw new Error('Receipt not found'); p.Status = 'VOID'; }
-    if (r.action === 'editOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); if (!(+r.amount > 0)) throw new Error('Amount must be positive'); o.Amount = +r.amount; if (r.name != null) o.Name = r.name; if (r.method) o.Method = r.method; if (r.date) o.Date = r.date; if (r.note != null) o.Note = r.note; }
-    if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); o.Status = 'VOID'; }
-    demoSave(d);
+  d.pw = d.pw || { jones: 'demo1234', clara: 'demo1234', isaac: 'demo1234' }; d.must = d.must || { clara: true }; d.log = d.log || [];
+  const lg = (name, action, target, detail) => d.log.push({ Timestamp: new Date().toISOString(), User: name, Action: action, Target: target || '', Detail: detail || '' });
+  const fail = (m, extra) => { const er = new Error(m); Object.assign(er, extra); throw er; };
+  if (r.action === 'login') {
+    const u = String(r.username || '').trim().toLowerCase(), user = DEMO_USERS.find(x => x.u === u);
+    if (!user || d.pw[u] !== r.password) { lg(u || '(blank)', 'LOGIN FAILED'); demoSave(d); fail('Wrong username or password.'); }
+    lg(user.name, 'LOGIN'); demoSave(d);
+    return Promise.resolve({ ok: true, token: 'demo-' + u, user: { ...user, mustChange: !!d.must[u] } });
   }
-  if (r.action === 'load') return Promise.resolve({ ok: true, role, pledges: d.pledges, payments: d.payments, offerings: d.offerings });
-  const last = arr => arr[arr.length - 1];
+  const u = String(r.token || '').replace('demo-', ''), user = DEMO_USERS.find(x => x.u === u);
+  if (!user) fail('Session expired. Please sign in again.', { auth: true });
+  if (d.must[u] && r.action !== 'changePassword' && r.action !== 'logout') fail('Please change your temporary password first.', { mustChange: true });
+  if (r.action === 'logout') { lg(user.name, 'LOGOUT'); demoSave(d); return Promise.resolve({ ok: true }); }
+  if (r.action === 'changePassword') { if (d.pw[u] !== r.oldPassword) fail('Your current password is wrong.'); if (String(r.newPassword || '').length < 8) fail('New password must be at least 8 characters.'); d.pw[u] = r.newPassword; delete d.must[u]; lg(user.name, 'PASSWORD CHANGED', user.name); demoSave(d); return Promise.resolve({ ok: true }); }
+  if (r.action === 'resetPassword') { if (!user.it) fail('Only the IT specialist can reset passwords.'); const t = DEMO_USERS.find(x => x.u === r.username); if (!t) fail('User not found'); const temp = 'temp' + Math.random().toString(36).slice(2, 8); d.pw[t.u] = temp; d.must[t.u] = true; lg(user.name, 'PASSWORD RESET', t.name, 'new temporary password issued'); demoSave(d); return Promise.resolve({ ok: true, tempPassword: temp }); }
+  if (r.action === 'load') return Promise.resolve({ ok: true, role: 'admin', me: { ...user, mustChange: false }, pledges: d.pledges, payments: d.payments, offerings: d.offerings, log: d.log.slice().reverse().slice(0, 300), releases: DEMO_RELEASES, users: DEMO_USERS.map(x => ({ u: x.u, name: x.name })) });
+  const who = user.name, last = arr => arr[arr.length - 1];
+  if (r.action === 'addPledge') { d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual', Months: Math.max(1, parseInt(r.months, 10) || 1) }); lg(who, 'ADD PLEDGE', last(d.pledges).PledgeID, r.name + ' · GHS ' + r.amount); }
+  else if (r.action === 'addPayment') { d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: who }); lg(who, 'ADD PAYMENT', last(d.payments).ReceiptNo, r.pledgeId + ' · GHS ' + r.amount); }
+  else if (r.action === 'addOffering') { d.offerings.push({ OfferingNo: 'SO-' + String(d.offerings.length + 1).padStart(4, '0'), Date: r.date, Name: r.name || '', Amount: +r.amount, Method: r.method, Note: r.note || '', RecordedBy: who }); lg(who, 'ADD SEED OFFERING', last(d.offerings).OfferingNo, 'GHS ' + r.amount); }
+  else if (r.action === 'editPledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) fail('Pledge not found'); const chg = []; if (r.name != null && String(r.name).trim() && String(r.name).trim() !== p.Name) { chg.push('name ' + p.Name + ' -> ' + String(r.name).trim()); p.Name = String(r.name).trim(); } if (r.phone != null) p.Phone = String(r.phone); if (+r.amount > 0 && +r.amount !== +p.Amount) { chg.push('amount ' + p.Amount + ' -> ' + r.amount); p.Amount = +r.amount; } if (parseInt(r.months, 10) > 0) p.Months = parseInt(r.months, 10); if (r.note != null) p.Note = String(r.note); lg(who, 'EDIT PLEDGE', r.id, chg.join('; ') || 'details updated'); }
+  else if (r.action === 'deletePledge') { const p = d.pledges.find(x => x.PledgeID === r.id); if (!p) fail('Pledge not found'); if (d.payments.some(x => x.PledgeID === r.id && !isVoid(x))) fail('This pledge has payments. Void them first.'); p.Status = 'REMOVED'; lg(who, 'REMOVE PLEDGE', r.id, p.Name + (r.reason ? ' · ' + r.reason : '')); }
+  else if (r.action === 'voidPayment') { const p = d.payments.find(x => x.ReceiptNo === r.receiptNo); if (!p) fail('Receipt not found'); p.Status = 'VOID'; lg(who, 'VOID PAYMENT', r.receiptNo, 'GHS ' + p.Amount + (r.reason ? ' · ' + r.reason : '')); }
+  else if (r.action === 'editOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) fail('Seed offering not found'); if (!(+r.amount > 0)) fail('Amount must be positive'); const old = o.Amount; o.Amount = +r.amount; if (r.name != null) o.Name = r.name; if (r.method) o.Method = r.method; if (r.date) o.Date = r.date; if (r.note != null) o.Note = r.note; lg(who, 'EDIT SEED OFFERING', r.offeringNo, old !== o.Amount ? 'amount ' + old + ' -> ' + o.Amount : 'details updated'); }
+  else if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) fail('Seed offering not found'); o.Status = 'VOID'; lg(who, 'VOID SEED OFFERING', r.offeringNo, 'GHS ' + o.Amount); }
+  else fail('Unknown action');
+  demoSave(d);
   const created = r.action === 'addPledge' ? { PledgeID: last(d.pledges).PledgeID } : r.action === 'addPayment' ? { ReceiptNo: last(d.payments).ReceiptNo } : r.action === 'addOffering' ? { OfferingNo: last(d.offerings).OfferingNo } : {};
-  return Promise.resolve({ ok: true, role, created });
+  return Promise.resolve({ ok: true, created });
 }
 
 /* ------------------------------------------------------------ calculations */
@@ -89,11 +105,21 @@ function render() {
   const cnt = {}; rows.forEach(r => { const k = 'n:' + r.Name.trim().toLowerCase(); cnt[k] = (cnt[k] || 0) + 1; const p = phoneOf(r.Phone); if (p) cnt['p:' + p] = (cnt['p:' + p] || 0) + 1; });
   const isDup = r => cnt['n:' + r.Name.trim().toLowerCase()] > 1 || (phoneOf(r.Phone) && cnt['p:' + phoneOf(r.Phone)] > 1);
   $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b>${isDup(r) ? ' <span class="pill part" title="Another pledge has the same name or phone">POSSIBLE DUPLICATE</span>' : ''}<div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
-  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap">${pend(o.OfferingNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(o.OfferingNo) + '">PDF</button>' + (S.role === 'finsec' ? ' <button class="btn sm ghost" data-eo="' + esc(o.OfferingNo) + '">Edit</button> <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : '')}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
+  $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n" style="white-space:nowrap">${pend(o.OfferingNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(o.OfferingNo) + '">PDF</button>' + (S.role === 'admin' ? ' <button class="btn sm ghost" data-eo="' + esc(o.OfferingNo) + '">Edit</button> <button class="btn sm ghost" data-voido="' + esc(o.OfferingNo) + '">Void</button>' : '')}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
   const nm = Object.fromEntries(S.pledges.map(p => [p.PledgeID, p.Name]));
   const rc = valid().slice().sort((a, b) => String(b.ReceiptNo).localeCompare(String(a.ReceiptNo))).slice(0, 15);
   $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${pend(p.ReceiptNo) ? '…' : esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || '')}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n">${pend(p.ReceiptNo) ? '<span style="color:var(--mute)">saving…</span>' : '<button class="btn sm" data-rcp="' + esc(p.ReceiptNo) + '">PDF</button>'}</td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
-  document.querySelectorAll('.tonly').forEach(e => e.classList.toggle('hidden', S.role !== 'finsec'));
+  renderLog();
+  document.querySelectorAll('.tonly').forEach(e => e.classList.toggle('hidden', S.role !== 'admin'));
+}
+const when = ts => { const d = new Date(ts); return isNaN(d) ? String(ts) : d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+function renderLog() {
+  const sel = $('#lu'), cur = sel.value, names = [...new Set((S.log || []).map(l => l.User))].sort();
+  sel.innerHTML = '<option value="">Everyone</option>' + names.map(n => '<option>' + esc(n) + '</option>').join(''); sel.value = names.includes(cur) ? cur : '';
+  const q = $('#lq').value.trim().toLowerCase();
+  const rows = (S.log || []).filter(l => (!sel.value || l.User === sel.value) && (!q || (l.User + ' ' + l.Action + ' ' + l.Target + ' ' + l.Detail).toLowerCase().includes(q)));
+  $('#lbody').innerHTML = rows.length ? rows.map(l => `<tr><td style="white-space:nowrap">${esc(when(l.Timestamp))}</td><td><b>${esc(l.User)}</b></td><td style="white-space:nowrap">${esc(l.Action)}</td><td>${esc(l.Target)}</td><td style="font-size:13px;color:var(--mute)">${esc(l.Detail)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">No activity yet.</td></tr>';
+  $('#relbody').innerHTML = (S.releases || []).map(r => `<tr><td><b>v${esc(r.Version)}</b></td><td style="white-space:nowrap">${esc(String(r.Date).slice(0, 10))}</td><td>${esc(r.UpdatedBy)}</td><td style="font-size:13px">${esc(r.Summary)}</td></tr>`).join('');
 }
 function statusBlock(T) {
   const tot = T.n || 1, seg = [['paid', 'Fully paid', T.paidN, 'var(--green)'], ['part', 'Part-paid', T.part, 'var(--gold)'], ['none', 'Not started', T.none, 'var(--red)']];
@@ -110,11 +136,11 @@ function chartWeeks() {
 
 /* ------------------------------------------------------------ dialogs */
 const openD = d => d.showModal();
-document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => { if (e.target === d || e.target.hasAttribute('data-close')) d.close(); }));
+document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e => { if ((e.target === d || e.target.hasAttribute('data-close')) && !(d.id === 'dPw' && pwForced)) d.close(); }));
 function pledgeDialog(id) {
   const r = model().rows.find(x => x.PledgeID === id); if (!r) return;
   $('#pTitle').textContent = r.Name.toUpperCase();
-  const t = S.role === 'finsec';
+  const t = S.role === 'admin';
   const allPays = S.payments.filter(p => p.PledgeID === id).sort((x, y) => String(x.ReceiptNo).localeCompare(String(y.ReceiptNo)));
   $('#pBody').innerHTML = `<div class="sum"><div><b>${money0(r.pledged)}</b><span>Pledged</span></div><div><b style="color:var(--green)">${money0(r.paid)}</b><span>Paid</span></div><div><b style="color:var(--red)">${money0(Math.max(0, r.bal))}</b><span>Balance</span></div></div>
   <div style="font-size:13px;color:var(--mute);margin-bottom:8px">${esc(phoneOf(r.Phone)) || 'No phone recorded'} · <b>${r.months} month${r.months > 1 ? 's' : ''}</b> × ${money0(r.monthly)} · ${esc(r.Source)} · ${esc(String(r.Timestamp).slice(0, 10))}${r.Note ? '<br><i>“' + esc(r.Note) + '”</i>' : ''}</div>
@@ -145,8 +171,8 @@ function confirmAction(title, text, okLabel) {
 function applyLocal(req, created) {
   const num = v => Number(v), mo = v => Math.max(1, parseInt(v, 10) || 1);
   if (req.action === 'addPledge') S.pledges.push({ PledgeID: created.PledgeID, Timestamp: new Date().toISOString(), Name: req.name, Phone: req.phone || '', Amount: num(req.amount), Note: req.note || '', Source: 'Manual', Months: mo(req.months) });
-  else if (req.action === 'addPayment') S.payments.push({ ReceiptNo: created.ReceiptNo, PledgeID: req.pledgeId, Date: req.date, Amount: num(req.amount), Method: req.method, Reference: req.reference || '', RecordedBy: 'Financial Secretary' });
-  else if (req.action === 'addOffering') S.offerings.push({ OfferingNo: created.OfferingNo, Date: req.date, Name: req.name || '', Amount: num(req.amount), Method: req.method, Note: req.note || '' });
+  else if (req.action === 'addPayment') S.payments.push({ ReceiptNo: created.ReceiptNo, PledgeID: req.pledgeId, Date: req.date, Amount: num(req.amount), Method: req.method, Reference: req.reference || '', RecordedBy: S.user.name });
+  else if (req.action === 'addOffering') S.offerings.push({ OfferingNo: created.OfferingNo, Date: req.date, Name: req.name || '', Amount: num(req.amount), Method: req.method, Note: req.note || '', RecordedBy: S.user.name });
   else if (req.action === 'editPledge') { const p = S.pledges.find(x => x.PledgeID === req.id); if (p) { if (req.name) p.Name = req.name; p.Phone = req.phone ?? p.Phone; if (num(req.amount) > 0) p.Amount = num(req.amount); p.Months = mo(req.months); p.Note = req.note ?? p.Note; } }
   else if (req.action === 'deletePledge') S.pledges = S.pledges.filter(x => x.PledgeID !== req.id);
   else if (req.action === 'voidPayment') { const p = S.payments.find(x => x.ReceiptNo === req.receiptNo); if (p) p.Status = 'VOID'; }
@@ -157,7 +183,7 @@ function applyLocal(req, created) {
 const pend = id => String(id).startsWith('tmp');
 let tmpN = 0;
 async function mutate(req, okMsg) {
-  const full = { ...req, code: S.code };
+  const full = { ...req, token: S.token };
   if (req.action.startsWith('add')) {
     const tmp = 'tmp' + (++tmpN);
     applyLocal(req, { PledgeID: tmp, ReceiptNo: tmp, OfferingNo: tmp }); render(); toast('Saving…');
@@ -199,7 +225,7 @@ function loadLogo() { return logoData ? Promise.resolve(logoData) : new Promise(
 function receiptInfo(no) {
   if (String(no).startsWith('SO-')) {
     const o = S.offerings.find(x => x.OfferingNo === no);
-    return { seed: true, p: { ReceiptNo: o.OfferingNo, Date: o.Date, Amount: o.Amount, Method: o.Method, Reference: o.Note }, pl: { Name: o.Name || 'Congregation (seed offering)', Phone: '', Amount: 0 }, paidToDate: 0, balance: 0 };
+    return { seed: true, p: { ReceiptNo: o.OfferingNo, Date: o.Date, Amount: o.Amount, Method: o.Method, Reference: o.Note, RecordedBy: o.RecordedBy }, pl: { Name: o.Name || 'Congregation (seed offering)', Phone: '', Amount: 0 }, paidToDate: 0, balance: 0 };
   }
   const p = S.payments.find(x => x.ReceiptNo === no), pl = S.pledges.find(x => x.PledgeID === p.PledgeID);
   const upTo = valid().filter(x => x.PledgeID === p.PledgeID && String(x.ReceiptNo) <= String(no)).reduce((s, x) => s + Number(x.Amount), 0);
@@ -230,7 +256,7 @@ async function receiptPDF(no) {
     d.setFontSize(11); d.setTextColor(...(i === 2 ? (balance > 0.005 ? [192, 57, 43] : [31, 157, 92]) : ink)); d.text(money(x[1]).replace('GH₵', 'GHS'), cx, sy + 6);
   });
   d.setFontSize(8.5); d.setFont('helvetica', 'bold'); d.setTextColor(...(balance > 0.005 ? [192, 57, 43] : [31, 157, 92])); if (seed) d.text('Seed offering — thank you and God bless you!', 14, 158); else d.text(balance > 0.005 ? 'Part payment — thank you. Balance outstanding.' : 'PLEDGE FULLY PAID — God bless you!', 14, 170);
-  d.setDrawColor(...ink); d.line(14, 190, 66, 190); d.setFontSize(8); d.setTextColor(...mute); d.setFont('helvetica', 'normal'); d.text('Received by (Financial Secretary)', 14, 194.5);
+  d.setDrawColor(...ink); d.line(14, 190, 66, 190); d.setFontSize(8); d.setTextColor(...mute); d.setFont('helvetica', 'normal'); d.text('Received by: ' + (p.RecordedBy || '—'), 14, 194.5);
   d.setFont('helvetica', 'italic'); d.setFontSize(8.5); d.text('"For all things come from You, and of Your own have we given You." — 1 Chronicles 29:14', 74, 202, { align: 'center', maxWidth: W - 24 });
   d.setFillColor(...royal); d.rect(0, 205 - 1.2, W, 1.2, 'F');
   return d;
@@ -245,20 +271,53 @@ function waLink(no) {
 
 /* ------------------------------------------------------------ events */
 function toast(t) { const e = document.createElement('div'); e.className = 'toast'; e.textContent = t; document.body.append(e); setTimeout(() => e.remove(), 2800); }
-async function load() { const j = await api({ action: 'load', code: S.code }); S.role = j.role; setData(j); render(); }
-async function enter(code) {
-  S.code = code; await load(); store.set('code', code);
+async function load() { const j = await api({ action: 'load', token: S.token }); S.user = j.me; S.role = 'admin'; setData(j); S.log = j.log || []; S.releases = j.releases || []; S.users = j.users || []; render(); }
+async function showApp() {
+  await load();
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  $('#roleBadge').textContent = S.role === 'finsec' ? 'FINANCIAL SECRETARY' : 'VIEW ONLY';
+  $('#roleBadge').textContent = S.user.name.toUpperCase() + (S.user.it ? ' · IT SPECIALIST' : '');
   $('#hdrSub').textContent = C.assembly + ' · ' + C.project; $('#demoBanner').classList.toggle('hidden', !DEMO);
+  document.querySelectorAll('.itonly').forEach(e => e.classList.toggle('hidden', !S.user.it));
 }
 $('#demoHint').classList.toggle('hidden', !DEMO);
 $('#loginForm').addEventListener('submit', async e => {
   e.preventDefault(); $('#loginErr').textContent = ''; $('#loginBtn').disabled = true; $('#loginBtn').textContent = 'Checking…';
-  try { await enter($('#code').value.trim()); } catch (er) { $('#loginErr').textContent = er.message; }
-  $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Open dashboard';
+  try {
+    const j = await api({ action: 'login', username: $('#uname').value.trim(), password: $('#code').value });
+    S.token = j.token; S.user = j.user; store.set('token', j.token); $('#code').value = '';
+    if (j.user.mustChange) openPw(true); else await showApp();
+  } catch (er) { $('#loginErr').textContent = er.message; }
+  $('#loginBtn').disabled = false; $('#loginBtn').textContent = 'Sign in';
 });
-$('#logout').onclick = () => { store.del('code'); location.reload(); };
+$('#logout').onclick = () => { const t = S.token; store.del('token'); (t ? api({ action: 'logout', token: t }).catch(() => {}) : Promise.resolve()).finally(() => location.reload()); };
+
+/* ---- passwords ---- */
+let pwForced = false;
+function openPw(force) {
+  pwForced = !!force; $('#fPw').reset(); $('#pwErr').textContent = '';
+  $('#pwTitle').textContent = force ? 'SET YOUR OWN PASSWORD' : 'CHANGE PASSWORD'; $('#pwX').classList.toggle('hidden', !!force);
+  $('#pwHelp').textContent = force ? 'Welcome, ' + S.user.name + '. For security, replace the temporary password with your own (at least 8 characters). Only you should know it.' : 'Use at least 8 characters. Only you should know it.';
+  $('#pwOld').placeholder = force ? 'The temporary password you were given' : '';
+  openD($('#dPw'));
+}
+$('#dPw').addEventListener('cancel', e => { if (pwForced) e.preventDefault(); });
+$('#chgPw').onclick = () => openPw(false);
+$('#fPw').addEventListener('submit', async e => {
+  e.preventDefault(); const o = $('#pwOld').value, n = $('#pwNew').value;
+  if (!ok('#pwErr', [[o, 'Enter your current password.', '#pwOld'], [n.length >= 8, 'The new password must be at least 8 characters.', '#pwNew'], [n === $('#pwNew2').value, 'The two new passwords do not match.', '#pwNew2'], [n !== o, 'Choose a password different from the old one.', '#pwNew']])) return;
+  const btn = $('#pwBtn'); btn.disabled = true;
+  try { await api({ action: 'changePassword', token: S.token, oldPassword: o, newPassword: n }); const wasForced = pwForced; pwForced = false; $('#dPw').close(); toast('Password changed'); if (wasForced) await showApp(); else load().catch(() => {}); }
+  catch (er) { $('#pwErr').textContent = er.message; }
+  btn.disabled = false;
+});
+$('#resetPw').onclick = () => { $('#rUser').innerHTML = (S.users || []).filter(u => u.u !== S.user.u).map(u => '<option value="' + esc(u.u) + '">' + esc(u.name) + '</option>').join(''); $('#rOut').classList.add('hidden'); $('#rErr').textContent = ''; $('#rBtn').textContent = 'Issue temporary password'; openD($('#dReset')); };
+$('#fReset').addEventListener('submit', async e => {
+  e.preventDefault(); const btn = $('#rBtn'); btn.disabled = true; $('#rErr').textContent = '';
+  try { const j = await api({ action: 'resetPassword', token: S.token, username: $('#rUser').value }); $('#rPw').textContent = j.tempPassword; $('#rOut').classList.remove('hidden'); btn.textContent = 'Issue another'; load().catch(() => {}); }
+  catch (er) { $('#rErr').textContent = er.message; }
+  btn.disabled = false;
+});
+$('#lu').onchange = $('#lq').oninput = renderLog;
 $('#refresh').onclick = async () => { try { await load(); toast('Updated'); } catch (e) { toast(e.message); } };
 $('#q').oninput = $('#flt').onchange = render;
 $('#print').onclick = () => print();
@@ -317,5 +376,5 @@ $('#fPay').addEventListener('submit', e => {
   pledgeDialog(id);
   p.then(c => { if ($('#dPledge').open) pledgeDialog(id); if (c.ReceiptNo) downloadReceipt(c.ReceiptNo); }).catch(er => { failed(er); if ($('#dPledge').open) pledgeDialog(id); });
 });
-const saved = store.get('code'); if (saved) enter(saved).catch(() => store.del('code'));
+const saved = store.get('token'); if (saved) { S.token = saved; showApp().catch(() => store.del('token')); }
 })();

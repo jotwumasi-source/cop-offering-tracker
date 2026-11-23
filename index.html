@@ -87,10 +87,11 @@ svg text{font-family:Montserrat,sans-serif}
     <img src="logo.png" alt="">
     <h1>OFFERING TRACKER</h1>
     <p id="loginSub">English Assembly · Bompata Area · Ayigya District</p>
-    <input id="code" type="password" placeholder="PASSCODE" autocomplete="current-password" autofocus>
-    <button class="btn gold" style="width:100%;padding:13px" id="loginBtn">Open dashboard</button>
+    <input id="uname" type="text" placeholder="USERNAME" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus style="letter-spacing:.1em">
+    <input id="code" type="password" placeholder="PASSWORD" autocomplete="current-password" style="letter-spacing:.1em">
+    <button class="btn gold" style="width:100%;padding:13px" id="loginBtn">Sign in</button>
     <div class="err" id="loginErr"></div>
-    <p id="demoHint" class="hidden" style="margin-top:10px">Demo mode: use <b>view</b> (read-only) or <b>finsec</b> (Financial Secretary, can record).</p>
+    <p id="demoHint" class="hidden" style="margin-top:10px">Demo mode: usernames <b>jones</b>, <b>clara</b> or <b>isaac</b>, password <b>demo1234</b> (Clara must set a new password on first sign-in).</p>
   </form>
 </section>
 
@@ -100,6 +101,7 @@ svg text{font-family:Montserrat,sans-serif}
   <div><div class="t1">OFFERING TRACKER</div><div class="t2" id="hdrSub"></div></div>
   <div class="sp"></div>
   <span class="badge" id="roleBadge"></span>
+  <button class="btn ghost sm" id="chgPw">Password</button>
   <button class="btn ghost sm" id="refresh">↻ Refresh</button>
   <button class="btn ghost sm" id="logout">Sign out</button>
 </header>
@@ -150,6 +152,23 @@ svg text{font-family:Montserrat,sans-serif}
       <tbody id="rbody"></tbody>
     </table></div>
   </div>
+
+  <div class="card">
+    <div class="tools" style="margin-bottom:6px"><h2 style="margin:0;flex:1">Activity log <span style="font-weight:600;letter-spacing:0;text-transform:none">· every action, with the name of who did it</span></h2>
+      <select id="lu"></select><input type="search" id="lq" placeholder="Search the log…"><button class="btn gold sm itonly hidden" id="resetPw">Reset a password</button></div>
+    <div class="tablewrap" style="max-height:460px;overflow:auto"><table>
+      <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Item</th><th>Details</th></tr></thead>
+      <tbody id="lbody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card">
+    <h2>Software updates <span style="font-weight:600;letter-spacing:0;text-transform:none">· every update is the responsibility of Jones Owusu Twumasi, IT Specialist</span></h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Version</th><th>Date</th><th>Updated by</th><th>What changed</th></tr></thead>
+      <tbody id="relbody"></tbody>
+    </table></div>
+  </div>
 </main>
 </div>
 
@@ -165,6 +184,27 @@ svg text{font-family:Montserrat,sans-serif}
   <label>Note (optional)</label><input id="aNote">
   <div class="err" id="aErr"></div>
   <button class="btn gold" style="width:100%;margin-top:6px">Save pledge</button>
+</form></dialog>
+
+<!-- change password -->
+<dialog id="dPw"><div class="dh"><h3 id="pwTitle">CHANGE PASSWORD</h3><button data-close id="pwX">×</button></div>
+<form class="db" id="fPw" novalidate>
+  <div id="pwHelp" style="font-size:13px;color:var(--mute)">Use at least 8 characters. Only you should know it.</div>
+  <label>Current password</label><input id="pwOld" type="password" autocomplete="current-password">
+  <label>New password</label><input id="pwNew" type="password" autocomplete="new-password">
+  <label>Repeat new password</label><input id="pwNew2" type="password" autocomplete="new-password">
+  <div class="err" id="pwErr"></div>
+  <button class="btn gold" style="width:100%;margin-top:6px" id="pwBtn">Save new password</button>
+</form></dialog>
+
+<!-- reset password (IT) -->
+<dialog id="dReset"><div class="dh"><h3>RESET A PASSWORD</h3><button data-close>×</button></div>
+<form class="db" id="fReset" novalidate>
+  <div style="font-size:13px;color:var(--mute)">Issues a one-time temporary password. The person must choose a new one at their next sign-in. This is recorded in the activity log.</div>
+  <label>Person</label><select id="rUser"></select>
+  <div class="err" id="rErr"></div>
+  <div id="rOut" class="hidden" style="background:var(--bg);border-radius:12px;padding:12px;margin-top:10px;text-align:center"><div style="font-size:12px;color:var(--mute)">Temporary password (give it to them privately)</div><div id="rPw" style="font-family:monospace;font-size:22px;letter-spacing:.12em;margin-top:4px"></div></div>
+  <button class="btn gold" style="width:100%;margin-top:10px" id="rBtn">Issue temporary password</button>
 </form></dialog>
 
 <!-- edit pledge -->
