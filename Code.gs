@@ -123,15 +123,15 @@ function handle_(req) {
     const ss = SpreadsheetApp.getActive();
     const ps = ss.getSheetByName(PLEDGES), ys = ss.getSheetByName(PAYMENTS);
     if (!ps || !ys) return { ok: false, error: 'Run setup() first' };
-    ensureHeaders_();
-    syncForm_();
-    if (req.action === 'load') return Object.assign({ ok: true, role: r }, payload_());
+    let created = {};
+    if (req.action === 'load') { ensureHeaders_(); syncForm_(); return Object.assign({ ok: true, role: r }, payload_()); }
     if (r !== 'finsec') return { ok: false, error: 'Financial Secretary access required' };
 
     if (req.action === 'addPledge') {
       const amt = Number(req.amount);
       if (!req.name || !(amt > 0)) return { ok: false, error: 'Name and amount required' };
-      ps.appendRow([nextId_(ps, 'P', 4), new Date().toISOString(), req.name, '', amt, req.note || '', 'Manual', '', Math.max(1, parseInt(req.months, 10) || 1)]);
+      const pid = nextId_(ps, 'P', 4); created = { PledgeID: pid };
+      ps.appendRow([pid, new Date().toISOString(), req.name, '', amt, req.note || '', 'Manual', '', Math.max(1, parseInt(req.months, 10) || 1)]);
       ps.getRange(ps.getLastRow(), 4).setNumberFormat('@').setValue(String(req.phone || ''));
     } else if (req.action === 'editPledge') {
       const v = ps.getDataRange().getValues();
@@ -146,14 +146,15 @@ function handle_(req) {
       const amt = Number(req.amount);
       if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
       if (!ps.getDataRange().getValues().some(x => x[0] === req.pledgeId)) return { ok: false, error: 'Pledge not found' };
-      const no = nextId_(ys, 'RCP-', 4);
+      const no = nextId_(ys, 'RCP-', 4); created = { ReceiptNo: no };
       ys.appendRow([no, req.pledgeId, req.date || new Date().toISOString().slice(0, 10), amt, req.method || 'Cash', req.reference || '', req.by || 'Financial Secretary', new Date().toISOString()]);
     } else if (req.action === 'addOffering') {
       const amt = Number(req.amount);
       if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
       const os = ss.getSheetByName(OFFERINGS) || ss.insertSheet(OFFERINGS);
       if (os.getLastRow() === 0) os.getRange(1, 1, 1, O_HEAD.length).setValues([O_HEAD]).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff');
-      os.appendRow([nextId_(os, 'SO-', 4), req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Financial Secretary', new Date().toISOString()]);
+      const sno = nextId_(os, 'SO-', 4); created = { OfferingNo: sno };
+      os.appendRow([sno, req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Financial Secretary', new Date().toISOString()]);
     } else if (req.action === 'deletePledge') {
       const v = ps.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.id);
@@ -176,7 +177,7 @@ function handle_(req) {
       os.getRange(i + 1, colOf_(os, 'Status')).setValue('VOID');
       if (req.reason) { const nc = colOf_(os, 'Note'); os.getRange(i + 1, nc).setValue((String(v[i][nc - 1] || '') + ' [void: ' + req.reason + ']').trim()); }
     } else return { ok: false, error: 'Unknown action' };
-    return Object.assign({ ok: true, role: r }, payload_());
+    return { ok: true, role: r, created: created };
   } finally { lock.releaseLock(); }
 }
 

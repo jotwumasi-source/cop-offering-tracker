@@ -45,7 +45,10 @@ function demoApi(r) {
     if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) throw new Error('Seed offering not found'); o.Status = 'VOID'; }
     demoSave(d);
   }
-  return Promise.resolve({ ok: true, role, pledges: d.pledges, payments: d.payments, offerings: d.offerings });
+  if (r.action === 'load') return Promise.resolve({ ok: true, role, pledges: d.pledges, payments: d.payments, offerings: d.offerings });
+  const last = arr => arr[arr.length - 1];
+  const created = r.action === 'addPledge' ? { PledgeID: last(d.pledges).PledgeID } : r.action === 'addPayment' ? { ReceiptNo: last(d.payments).ReceiptNo } : r.action === 'addOffering' ? { OfferingNo: last(d.offerings).OfferingNo } : {};
+  return Promise.resolve({ ok: true, role, created });
 }
 
 /* ------------------------------------------------------------ calculations */
@@ -138,7 +141,25 @@ function confirmAction(title, text, okLabel) {
     $('#fConfirm').addEventListener('submit', onS); $('#cNo').addEventListener('click', onN); d.addEventListener('close', onC); d.showModal();
   });
 }
-async function mutate(req, okMsg) { const j = await api({ ...req, code: S.code }); setData(j); render(); toast(okMsg); }
+function applyLocal(req, created) {
+  const num = v => Number(v), mo = v => Math.max(1, parseInt(v, 10) || 1);
+  if (req.action === 'addPledge') S.pledges.push({ PledgeID: created.PledgeID, Timestamp: new Date().toISOString(), Name: req.name, Phone: req.phone || '', Amount: num(req.amount), Note: req.note || '', Source: 'Manual', Months: mo(req.months) });
+  else if (req.action === 'addPayment') S.payments.push({ ReceiptNo: created.ReceiptNo, PledgeID: req.pledgeId, Date: req.date, Amount: num(req.amount), Method: req.method, Reference: req.reference || '', RecordedBy: 'Financial Secretary' });
+  else if (req.action === 'addOffering') S.offerings.push({ OfferingNo: created.OfferingNo, Date: req.date, Name: req.name || '', Amount: num(req.amount), Method: req.method, Note: req.note || '' });
+  else if (req.action === 'editPledge') { const p = S.pledges.find(x => x.PledgeID === req.id); if (p) { if (req.name) p.Name = req.name; p.Phone = req.phone ?? p.Phone; if (num(req.amount) > 0) p.Amount = num(req.amount); p.Months = mo(req.months); p.Note = req.note ?? p.Note; } }
+  else if (req.action === 'deletePledge') S.pledges = S.pledges.filter(x => x.PledgeID !== req.id);
+  else if (req.action === 'voidPayment') { const p = S.payments.find(x => x.ReceiptNo === req.receiptNo); if (p) p.Status = 'VOID'; }
+  else if (req.action === 'voidOffering') S.offerings = S.offerings.filter(o => o.OfferingNo !== req.offeringNo);
+}
+// Adds wait for the server (it assigns the number). Edits, removals and voids show instantly and sync in the background.
+async function mutate(req, okMsg) {
+  const full = { ...req, code: S.code };
+  if (req.action.startsWith('add')) { const j = await api(full); const created = j.created || {}; applyLocal(req, created); render(); toast(okMsg); return created; }
+  const snap = JSON.stringify({ p: S.pledges, y: S.payments, o: S.offerings });
+  applyLocal(req); render(); toast(okMsg);
+  api(full).catch(er => { const s = JSON.parse(snap); S.pledges = s.p; S.payments = s.y; S.offerings = s.o; render(); toast('Not saved: ' + er.message + ' (change undone)'); });
+  return {};
+}
 function editDialog(id) {
   const p = S.pledges.find(x => x.PledgeID === id); $('#dPledge').close();
   $('#eName').value = p.Name; $('#ePhone').value = phoneOf(p.Phone); $('#eAmt').value = p.Amount; $('#eMonths').value = Math.max(1, parseInt(p.Months, 10) || 1); $('#eNote').value = p.Note || ''; $('#eErr').textContent = '';
@@ -233,38 +254,35 @@ document.addEventListener('click', e => {
   if (t.dataset.pay) return payDialog(t.dataset.pay);
   if (t.classList.contains('row')) pledgeDialog(t.dataset.id);
 });
-$('#fEdit').addEventListener('submit', async e => {
-  e.preventDefault(); const btn = $('#eBtn'); btn.disabled = true; $('#eErr').textContent = '';
-  try { await mutate({ action: 'editPledge', id: e.target.dataset.id, name: $('#eName').value.trim(), phone: $('#ePhone').value.trim(), amount: $('#eAmt').value, months: $('#eMonths').value, note: $('#eNote').value.trim() }, 'Pledge updated'); $('#dEdit').close(); }
-  catch (er) { $('#eErr').textContent = er.message; }
-  btn.disabled = false;
+const busy = (btn, on, label) => { btn.disabled = on; if (on) { btn.dataset.l = btn.textContent; btn.textContent = label || 'Saving…'; } else if (btn.dataset.l) btn.textContent = btn.dataset.l; };
+$('#fEdit').addEventListener('submit', e => {
+  e.preventDefault(); const id = e.target.dataset.id;
+  $('#dEdit').close();
+  mutate({ action: 'editPledge', id, name: $('#eName').value.trim(), phone: $('#ePhone').value.trim(), amount: $('#eAmt').value, months: $('#eMonths').value, note: $('#eNote').value.trim() }, 'Pledge updated');
 });
 $('#addSeed').onclick = () => { $('#fSeed').reset(); $('#sDate').value = new Date().toISOString().slice(0, 10); $('#sErr').textContent = ''; openD($('#dSeed')); };
 $('#fSeed').addEventListener('submit', async e => {
-  e.preventDefault(); const btn = $('#sBtn'); btn.disabled = true; $('#sErr').textContent = '';
+  e.preventDefault(); const btn = $('#sBtn'); busy(btn, true); $('#sErr').textContent = '';
   try {
-    const before = new Set(S.offerings.map(o => o.OfferingNo));
-    const j = await api({ action: 'addOffering', code: S.code, name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() });
-    setData(j); render(); $('#dSeed').close();
-    const no = S.offerings.find(o => !before.has(o.OfferingNo)); if (no) { await downloadReceipt(no.OfferingNo); toast('Seed offering recorded'); }
+    const c = await mutate({ action: 'addOffering', name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, 'Seed offering recorded');
+    $('#dSeed').close(); if (c.OfferingNo) downloadReceipt(c.OfferingNo);
   } catch (er) { $('#sErr').textContent = er.message; }
-  btn.disabled = false;
+  busy(btn, false);
 });
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
 $('#fAdd').addEventListener('submit', async e => {
-  e.preventDefault();
-  try { const j = await api({ action: 'addPledge', code: S.code, name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }); setData(j); render(); $('#dAdd').close(); toast('Pledge saved'); }
+  e.preventDefault(); const btn = e.target.querySelector('button.btn'); busy(btn, true); $('#aErr').textContent = '';
+  try { await mutate({ action: 'addPledge', name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }, 'Pledge saved'); $('#dAdd').close(); }
   catch (er) { $('#aErr').textContent = er.message; }
+  busy(btn, false);
 });
 $('#fPay').addEventListener('submit', async e => {
-  e.preventDefault(); const id = e.target.dataset.id, btn = $('#yBtn'); $('#yErr').textContent = ''; btn.disabled = true;
+  e.preventDefault(); const id = e.target.dataset.id, btn = $('#yBtn'); $('#yErr').textContent = ''; busy(btn, true);
   try {
-    const before = new Set(S.payments.map(p => p.ReceiptNo));
-    const j = await api({ action: 'addPayment', code: S.code, pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() });
-    setData(j); render(); $('#dPay').close();
-    const np = S.payments.find(p => !before.has(p.ReceiptNo)); if (np) { await downloadReceipt(np.ReceiptNo); pledgeDialog(id); }
+    const c = await mutate({ action: 'addPayment', pledgeId: id, amount: $('#yAmt').value, date: $('#yDate').value, method: $('#yMethod').value, reference: $('#yRef').value.trim() }, 'Payment recorded');
+    $('#dPay').close(); pledgeDialog(id); if (c.ReceiptNo) downloadReceipt(c.ReceiptNo);
   } catch (er) { $('#yErr').textContent = er.message; }
-  btn.disabled = false;
+  busy(btn, false);
 });
 const saved = store.get('code'); if (saved) enter(saved).catch(() => store.del('code'));
 })();
