@@ -15,7 +15,7 @@ const PAYMENTS = 'Payments';
 const OFFERINGS = 'Offerings';
 const FORM_SHEET = 'Form Responses 1';
 const O_HEAD = ['OfferingNo', 'Date', 'Name', 'Amount', 'Method', 'Note', 'RecordedBy', 'Timestamp'];
-const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Source', 'FormTs'];
+const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Source', 'FormTs', 'Months'];
 const Y_HEAD = ['ReceiptNo', 'PledgeID', 'Date', 'Amount', 'Method', 'Reference', 'RecordedBy', 'Timestamp'];
 
 function setup() {
@@ -30,16 +30,28 @@ function setup() {
   const props = PropertiesService.getScriptProperties();
   const code = () => Math.random().toString(36).slice(2, 8).toUpperCase();
   if (!props.getProperty('VIEW_CODE')) props.setProperty('VIEW_CODE', code());
-  if (!props.getProperty('TREASURER_CODE')) props.setProperty('TREASURER_CODE', code() + code());
+  if (!props.getProperty('FINSEC_CODE')) props.setProperty('FINSEC_CODE', props.getProperty('TREASURER_CODE') || (code() + code()));
+  props.deleteProperty('TREASURER_CODE'); // renamed to FINSEC_CODE (same value kept)
   Logger.log('VIEW code (leadership, read-only): ' + props.getProperty('VIEW_CODE'));
-  Logger.log('TREASURER code (can record): ' + props.getProperty('TREASURER_CODE'));
-  Logger.log('To change a code: Project Settings > Script properties.');
+  Logger.log('FINANCIAL SECRETARY code (can record): ' + props.getProperty('FINSEC_CODE'));
+  Logger.log('To change a code: Project Settings > Script properties (VIEW_CODE, FINSEC_CODE).');
+  ensureHeaders_();
+}
+
+// Adds any missing column headers to existing sheets (safe to run repeatedly).
+function ensureHeaders_() {
+  const ss = SpreadsheetApp.getActive();
+  [[PLEDGES, P_HEAD]].forEach(([n, h]) => {
+    const sh = ss.getSheetByName(n); if (!sh) return;
+    const cur = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
+    h.forEach(k => { if (cur.indexOf(k) < 0) { sh.getRange(1, cur.length + 1).setValue(k).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff'); cur.push(k); } });
+  });
 }
 
 function role_(code) {
   const p = PropertiesService.getScriptProperties();
   if (!code) return null;
-  if (code === p.getProperty('TREASURER_CODE')) return 'treasurer';
+  if (code === (p.getProperty('FINSEC_CODE') || p.getProperty('TREASURER_CODE'))) return 'finsec';
   if (code === p.getProperty('VIEW_CODE')) return 'viewer';
   return null;
 }
@@ -67,15 +79,16 @@ function syncForm_() {
   const v = fs.getDataRange().getValues();
   const h = v.shift().map(String);
   const col = re => h.findIndex(x => re.test(x));
-  const cT = 0, cA = col(/amount/i), cN = col(/name/i), cNote = col(/note|prayer/i), cPh = col(/phone|whatsapp/i);
+  const cT = 0, cA = col(/amount/i), cN = col(/name/i), cNote = col(/note|prayer/i), cPh = col(/phone|whatsapp/i), cM = col(/month|instal/i);
   let n = ps.getLastRow();
   v.forEach(r => {
     const ts = r[cT] instanceof Date ? r[cT].toISOString() : String(r[cT]);
     if (!ts || seen[ts]) return;
     const amt = parseFloat(String(r[cA]).replace(/[^0-9.]/g, '')) || 0;
     n++;
+    const mm = cM >= 0 ? (parseInt(String(r[cM]).replace(/[^0-9]/g, ''), 10) || 1) : 1;
     const ph = cPh >= 0 ? String(r[cPh] || '').replace(/[^0-9+]/g, '') : '';
-    ps.appendRow(['P' + String(n - 1).padStart(4, '0'), ts, String(r[cN] || '').trim(), '', amt, cNote >= 0 ? r[cNote] : '', 'Form', ts]);
+    ps.appendRow(['P' + String(n - 1).padStart(4, '0'), ts, String(r[cN] || '').trim(), '', amt, cNote >= 0 ? r[cNote] : '', 'Form', ts, mm]);
     ps.getRange(ps.getLastRow(), 4).setNumberFormat('@').setValue(ph);
   });
 }
@@ -101,14 +114,15 @@ function handle_(req) {
     const ss = SpreadsheetApp.getActive();
     const ps = ss.getSheetByName(PLEDGES), ys = ss.getSheetByName(PAYMENTS);
     if (!ps || !ys) return { ok: false, error: 'Run setup() first' };
+    ensureHeaders_();
     syncForm_();
     if (req.action === 'load') return Object.assign({ ok: true, role: r }, payload_());
-    if (r !== 'treasurer') return { ok: false, error: 'Treasurer access required' };
+    if (r !== 'finsec') return { ok: false, error: 'Financial Secretary access required' };
 
     if (req.action === 'addPledge') {
       const amt = Number(req.amount);
       if (!req.name || !(amt > 0)) return { ok: false, error: 'Name and amount required' };
-      ps.appendRow([nextId_(ps, 'P', 4), new Date().toISOString(), req.name, '', amt, req.note || '', 'Manual', '']);
+      ps.appendRow([nextId_(ps, 'P', 4), new Date().toISOString(), req.name, '', amt, req.note || '', 'Manual', '', Math.max(1, parseInt(req.months, 10) || 1)]);
       ps.getRange(ps.getLastRow(), 4).setNumberFormat('@').setValue(String(req.phone || ''));
     } else if (req.action === 'editPledge') {
       const v = ps.getDataRange().getValues();
@@ -117,18 +131,19 @@ function handle_(req) {
       if (req.name != null) ps.getRange(i + 1, 3).setValue(req.name);
       if (req.phone != null) ps.getRange(i + 1, 4).setNumberFormat('@').setValue(String(req.phone));
       if (req.amount != null && Number(req.amount) > 0) ps.getRange(i + 1, 5).setValue(Number(req.amount));
+      if (req.months != null && parseInt(req.months, 10) > 0) ps.getRange(i + 1, v[0].indexOf('Months') + 1).setValue(parseInt(req.months, 10));
     } else if (req.action === 'addPayment') {
       const amt = Number(req.amount);
       if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
       if (!ps.getDataRange().getValues().some(x => x[0] === req.pledgeId)) return { ok: false, error: 'Pledge not found' };
       const no = nextId_(ys, 'RCP-', 4);
-      ys.appendRow([no, req.pledgeId, req.date || new Date().toISOString().slice(0, 10), amt, req.method || 'Cash', req.reference || '', req.by || 'Treasurer', new Date().toISOString()]);
+      ys.appendRow([no, req.pledgeId, req.date || new Date().toISOString().slice(0, 10), amt, req.method || 'Cash', req.reference || '', req.by || 'Financial Secretary', new Date().toISOString()]);
     } else if (req.action === 'addOffering') {
       const amt = Number(req.amount);
       if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
       const os = ss.getSheetByName(OFFERINGS) || ss.insertSheet(OFFERINGS);
       if (os.getLastRow() === 0) os.getRange(1, 1, 1, O_HEAD.length).setValues([O_HEAD]).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff');
-      os.appendRow([nextId_(os, 'SO-', 4), req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Treasurer', new Date().toISOString()]);
+      os.appendRow([nextId_(os, 'SO-', 4), req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', req.by || 'Financial Secretary', new Date().toISOString()]);
     } else if (req.action === 'voidPayment') {
       const v = ys.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.receiptNo);

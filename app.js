@@ -13,9 +13,9 @@ const DKEY = 'cop_tracker_demo_v1';
 function demoSeed() {
   const names = ['Akosua Mensah','Kwame Boateng','Efua Owusu','Yaw Asante','Abena Darko','Kofi Annan Jr','Ama Serwaa','Nana Yaw Sarpong','Esi Quaye','Kojo Antwi','Adwoa Frimpong','Samuel Tetteh','Grace Ofori','Daniel Acheampong'];
   const amts = [2000,1500,500,1000,3000,800,600,2500,400,1200,750,5000,300,1000];
-  const pledges = names.map((n, i) => ({ PledgeID: 'P' + String(i + 1).padStart(4, '0'), Timestamp: new Date(Date.now() - (14 - i) * 864e5).toISOString(), Name: n, Phone: '024' + String(1000000 + i * 91357).slice(0, 7), Amount: amts[i], Note: '', Source: i % 3 ? 'Form' : 'Manual' }));
+  const pledges = names.map((n, i) => ({ PledgeID: 'P' + String(i + 1).padStart(4, '0'), Timestamp: new Date(Date.now() - (14 - i) * 864e5).toISOString(), Name: n, Phone: '024' + String(1000000 + i * 91357).slice(0, 7), Amount: amts[i], Note: '', Source: i % 3 ? 'Form' : 'Manual', Months: [3, 6, 1, 4, 6, 2, 3, 6, 1, 4, 3, 6, 2, 4][i] }));
   const pay = []; let k = 0;
-  const add = (pi, frac, daysAgo, m) => { k++; pay.push({ ReceiptNo: 'RCP-' + String(k).padStart(4, '0'), PledgeID: pledges[pi].PledgeID, Date: new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10), Amount: Math.round(pledges[pi].Amount * frac), Method: m, Reference: '', RecordedBy: 'Treasurer' }); };
+  const add = (pi, frac, daysAgo, m) => { k++; pay.push({ ReceiptNo: 'RCP-' + String(k).padStart(4, '0'), PledgeID: pledges[pi].PledgeID, Date: new Date(Date.now() - daysAgo * 864e5).toISOString().slice(0, 10), Amount: Math.round(pledges[pi].Amount * frac), Method: m, Reference: '', RecordedBy: 'Financial Secretary' }); };
   add(0, 1, 12, 'MoMo'); add(1, .5, 11, 'Cash'); add(2, 1, 10, 'Cash'); add(3, .4, 9, 'MoMo'); add(4, .3, 8, 'Bank transfer'); add(5, 1, 7, 'MoMo'); add(1, .25, 5, 'MoMo'); add(7, .6, 4, 'Cash'); add(3, .3, 3, 'MoMo'); add(9, .5, 2, 'MoMo'); add(11, .2, 1, 'Cash'); add(4, .3, 1, 'MoMo');
   const offerings = [{ OfferingNo: 'SO-0001', Date: new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10), Name: '', Amount: 650, Method: 'Cash', Note: 'Sunday seed offering' }, { OfferingNo: 'SO-0002', Date: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), Name: 'Nana Yaw Sarpong', Amount: 300, Method: 'MoMo', Note: '' }];
   return { pledges, payments: pay, offerings };
@@ -31,13 +31,13 @@ async function api(req) {
   return j;
 }
 function demoApi(r) {
-  const role = r.code === 'treasurer' ? 'treasurer' : r.code === 'view' ? 'viewer' : null;
+  const role = r.code === 'finsec' ? 'finsec' : r.code === 'view' ? 'viewer' : null;
   if (!role) throw new Error('Invalid passcode');
   const d = demoLoad();
   if (r.action !== 'load') {
-    if (role !== 'treasurer') throw new Error('Treasurer access required');
-    if (r.action === 'addPledge') d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual' });
-    if (r.action === 'addPayment') d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: 'Treasurer' });
+    if (role !== 'finsec') throw new Error('Financial Secretary access required');
+    if (r.action === 'addPledge') d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual', Months: Math.max(1, parseInt(r.months, 10) || 1) });
+    if (r.action === 'addPayment') d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: 'Financial Secretary' });
     if (r.action === 'addOffering') d.offerings.push({ OfferingNo: 'SO-' + String(d.offerings.length + 1).padStart(4, '0'), Date: r.date, Name: r.name || '', Amount: +r.amount, Method: r.method, Note: r.note || '' });
     demoSave(d);
   }
@@ -52,7 +52,8 @@ function model() {
     const ps = (by[pl.PledgeID] || []).sort((a, b) => String(a.ReceiptNo).localeCompare(b.ReceiptNo));
     const paid = ps.reduce((s, p) => s + Number(p.Amount), 0), pledged = Number(pl.Amount) || 0;
     const bal = pledged - paid;
-    return { ...pl, pledged, paid, bal, pays: ps, status: paid <= 0 ? 'none' : bal > 0.005 ? 'part' : 'paid' };
+    const months = Math.max(1, parseInt(pl.Months, 10) || 1);
+    return { ...pl, pledged, paid, bal, months, monthly: pledged / months, pays: ps, status: paid <= 0 ? 'none' : bal > 0.005 ? 'part' : 'paid' };
   });
   return { rows, T: { pledged: rows.reduce((s, r) => s + r.pledged, 0), received: rows.reduce((s, r) => s + r.paid, 0), out: rows.reduce((s, r) => s + Math.max(0, r.bal), 0), n: rows.length, none: rows.filter(r => r.status === 'none').length, part: rows.filter(r => r.status === 'part').length, paidN: rows.filter(r => r.status === 'paid').length } };
 }
@@ -75,12 +76,12 @@ function render() {
   const q = $('#q').value.trim().toLowerCase(), f = $('#flt').value;
   const list = rows.filter(r => (!q || (r.Name + ' ' + r.Phone).toLowerCase().includes(q)) && (f === 'all' || (f === 'open' ? r.status !== 'paid' : r.status === f)));
   const lab = { none: 'NOT STARTED', part: 'PART-PAID', paid: 'PAID' };
-  $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b><div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No pledgers match.</td></tr>`;
+  $('#tbody').innerHTML = list.length ? list.map(r => `<tr class="row" data-id="${esc(r.PledgeID)}"><td><b>${esc(r.Name)}</b><div class="mini"><i style="width:${r.pledged ? Math.min(100, r.paid / r.pledged * 100) : 0}%"></i></div></td><td>${esc(phoneOf(r.Phone)) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(r.pledged)}</td><td style="white-space:nowrap;font-size:13px">${r.months} mo × ${money0(r.monthly)}</td><td class="n">${money(r.paid)}</td><td class="n"><b>${money(Math.max(0, r.bal))}</b></td><td><span class="pill ${r.status}">${lab[r.status]}</span></td></tr>`).join('') : `<tr><td colspan="7" class="empty">No pledgers match.</td></tr>`;
   $('#sbody').innerHTML = S.offerings.length ? S.offerings.slice().reverse().map(o => `<tr><td><b>${esc(o.OfferingNo)}</b></td><td>${esc(String(o.Date).slice(0, 10))}</td><td>${esc(o.Name) || '<span style="color:var(--mute)">Anonymous / congregation</span>'}</td><td>${esc(o.Method)}</td><td class="n">${money(o.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(o.OfferingNo)}">PDF</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No seed offering recorded yet.</td></tr>`;
   const nm = Object.fromEntries(S.pledges.map(p => [p.PledgeID, p.Name]));
   const rc = valid().slice().sort((a, b) => String(b.ReceiptNo).localeCompare(String(a.ReceiptNo))).slice(0, 15);
   $('#rbody').innerHTML = rc.length ? rc.map(p => `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(nm[p.PledgeID] || p.PledgeID)}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button></td></tr>`).join('') : `<tr><td colspan="6" class="empty">No payments recorded yet.</td></tr>`;
-  document.querySelectorAll('.tonly').forEach(e => e.classList.toggle('hidden', S.role !== 'treasurer'));
+  document.querySelectorAll('.tonly').forEach(e => e.classList.toggle('hidden', S.role !== 'finsec'));
 }
 function statusBlock(T) {
   const tot = T.n || 1, seg = [['paid', 'Fully paid', T.paidN, 'var(--green)'], ['part', 'Part-paid', T.part, 'var(--gold)'], ['none', 'Not started', T.none, 'var(--red)']];
@@ -101,9 +102,9 @@ document.querySelectorAll('dialog').forEach(d => d.addEventListener('click', e =
 function pledgeDialog(id) {
   const r = model().rows.find(x => x.PledgeID === id); if (!r) return;
   $('#pTitle').textContent = r.Name.toUpperCase();
-  const t = S.role === 'treasurer';
+  const t = S.role === 'finsec';
   $('#pBody').innerHTML = `<div class="sum"><div><b>${money0(r.pledged)}</b><span>Pledged</span></div><div><b style="color:var(--green)">${money0(r.paid)}</b><span>Paid</span></div><div><b style="color:var(--red)">${money0(Math.max(0, r.bal))}</b><span>Balance</span></div></div>
-  <div style="font-size:13px;color:var(--mute);margin-bottom:8px">${esc(phoneOf(r.Phone)) || 'No phone recorded'} · ${esc(r.Source)} · ${esc(String(r.Timestamp).slice(0, 10))}${r.Note ? '<br><i>“' + esc(r.Note) + '”</i>' : ''}</div>
+  <div style="font-size:13px;color:var(--mute);margin-bottom:8px">${esc(phoneOf(r.Phone)) || 'No phone recorded'} · <b>${r.months} month${r.months > 1 ? 's' : ''}</b> × ${money0(r.monthly)} · ${esc(r.Source)} · ${esc(String(r.Timestamp).slice(0, 10))}${r.Note ? '<br><i>“' + esc(r.Note) + '”</i>' : ''}</div>
   <table class="hist"><thead><tr><th>Receipt</th><th>Date</th><th>Method</th><th class="n">Amount</th><th></th></tr></thead><tbody>${r.pays.length ? r.pays.map(p => `<tr><td><b>${esc(p.ReceiptNo)}</b></td><td>${esc(String(p.Date).slice(0, 10))}</td><td>${esc(p.Method)}</td><td class="n">${money(p.Amount)}</td><td class="n"><button class="btn sm" data-rcp="${esc(p.ReceiptNo)}">PDF</button> <button class="btn sm ghost" data-wa="${esc(p.ReceiptNo)}">WhatsApp</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>'}</tbody></table>
   ${t ? `<button class="btn gold" style="width:100%;margin-top:14px" data-pay="${esc(r.PledgeID)}" ${r.bal <= 0 ? 'disabled' : ''}>+ Record payment</button>` : ''}`;
   openD($('#dPledge'));
@@ -159,7 +160,7 @@ async function receiptPDF(no) {
     d.setFontSize(11); d.setTextColor(...(i === 2 ? (balance > 0.005 ? [192, 57, 43] : [31, 157, 92]) : ink)); d.text(money(x[1]).replace('GH₵', 'GHS'), cx, sy + 6);
   });
   d.setFontSize(8.5); d.setFont('helvetica', 'bold'); d.setTextColor(...(balance > 0.005 ? [192, 57, 43] : [31, 157, 92])); if (seed) d.text('Seed offering — thank you and God bless you!', 14, 158); else d.text(balance > 0.005 ? 'Part payment — thank you. Balance outstanding.' : 'PLEDGE FULLY PAID — God bless you!', 14, 170);
-  d.setDrawColor(...ink); d.line(14, 190, 66, 190); d.setFontSize(8); d.setTextColor(...mute); d.setFont('helvetica', 'normal'); d.text('Received by (Treasurer)', 14, 194.5);
+  d.setDrawColor(...ink); d.line(14, 190, 66, 190); d.setFontSize(8); d.setTextColor(...mute); d.setFont('helvetica', 'normal'); d.text('Received by (Financial Secretary)', 14, 194.5);
   d.setFont('helvetica', 'italic'); d.setFontSize(8.5); d.text('"For all things come from You, and of Your own have we given You." — 1 Chronicles 29:14', 74, 202, { align: 'center', maxWidth: W - 24 });
   d.setFillColor(...royal); d.rect(0, 205 - 1.2, W, 1.2, 'F');
   return d;
@@ -178,7 +179,7 @@ async function load() { const j = await api({ action: 'load', code: S.code }); S
 async function enter(code) {
   S.code = code; await load(); store.set('code', code);
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  $('#roleBadge').textContent = S.role === 'treasurer' ? 'TREASURER' : 'VIEW ONLY';
+  $('#roleBadge').textContent = S.role === 'finsec' ? 'FINANCIAL SECRETARY' : 'VIEW ONLY';
   $('#hdrSub').textContent = C.assembly + ' · ' + C.project; $('#demoBanner').classList.toggle('hidden', !DEMO);
 }
 $('#demoHint').classList.toggle('hidden', !DEMO);
@@ -192,7 +193,7 @@ $('#refresh').onclick = async () => { try { await load(); toast('Updated'); } ca
 $('#q').oninput = $('#flt').onchange = render;
 $('#print').onclick = () => print();
 $('#csv').onclick = () => {
-  const lines = [['Name', 'Phone', 'Pledged', 'Paid', 'Balance', 'Status']].concat(model().rows.map(r => [r.Name, r.Phone, r.pledged, r.paid, Math.max(0, r.bal), r.status]));
+  const lines = [['Name', 'Phone', 'Pledged', 'Months', 'Monthly', 'Paid', 'Balance', 'Status']].concat(model().rows.map(r => [r.Name, phoneOf(r.Phone), r.pledged, r.months, r.monthly.toFixed(2), r.paid, Math.max(0, r.bal), r.status]));
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.map(l => l.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' })); a.download = 'pledges.csv'; a.click();
 };
 document.addEventListener('click', e => {
@@ -216,7 +217,7 @@ $('#fSeed').addEventListener('submit', async e => {
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
 $('#fAdd').addEventListener('submit', async e => {
   e.preventDefault();
-  try { const j = await api({ action: 'addPledge', code: S.code, name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, note: $('#aNote').value.trim() }); S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); $('#dAdd').close(); toast('Pledge saved'); }
+  try { const j = await api({ action: 'addPledge', code: S.code, name: $('#aName').value.trim(), phone: $('#aPhone').value.trim(), amount: $('#aAmt').value, months: $('#aMonths').value, note: $('#aNote').value.trim() }); S.pledges = j.pledges; S.payments = j.payments; S.offerings = j.offerings || []; render(); $('#dAdd').close(); toast('Pledge saved'); }
   catch (er) { $('#aErr').textContent = er.message; }
 });
 $('#fPay').addEventListener('submit', async e => {

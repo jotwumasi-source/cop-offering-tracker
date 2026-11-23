@@ -3,7 +3,8 @@
 Pledge and payment dashboard. The page is static (GitHub Pages); all data lives in a **private Google Sheet** and is only sent to the browser after a valid passcode. No donor data is stored in this repository.
 
 * **View-only passcode** – leadership sees totals, pledgers, balances, receipts.
-* **Treasurer passcode** – also adds pledges, records instalments, creates receipts (PDF, branded) and WhatsApp messages.
+* **Financial Secretary passcode** – also adds pledges, records instalments, creates receipts (PDF, branded) and WhatsApp messages.
+* Each pledge carries the **number of instalment months** chosen on the form (monthly amount = pledge ÷ months).
 * Receipts are numbered `RCP-0001…` and show amount, pledge total, paid-to-date and balance.
 * Pledge-form submissions flow into the Sheet automatically.
 
@@ -11,9 +12,9 @@ Pledge and payment dashboard. The page is static (GitHub Pages); all data lives 
 
 1. Open the Google Form's **Responses → Link to Sheets** (creates the Sheet; tab is `Form Responses 1`).
 2. In that Sheet: **Extensions → Apps Script**, paste `Code.gs`, save.
-3. Run **`setup`** once (authorise). **View → Logs** shows the two passcodes (change them in *Project Settings → Script properties*: `VIEW_CODE`, `TREASURER_CODE`).
+3. Run **`setup`** once (authorise). **View → Logs** shows the two passcodes (change them in *Project Settings → Script properties*: `VIEW_CODE`, `FINSEC_CODE`).
 4. **Deploy → New deployment → Web app** → *Execute as: Me*, *Who has access: Anyone* → copy the Web app URL.
-5. Put the URL in `config.js` (`apiUrl`), commit. Until then the site runs in **demo mode** (try passcodes `view` / `treasurer`).
+5. Put the URL in `config.js` (`apiUrl`), commit. Until then the site runs in **demo mode** (try passcodes `view` / `finsec`).
 
 Keep the Sheet itself private (do not share it); the passcodes protect the web page.
 

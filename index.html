@@ -90,7 +90,7 @@ svg text{font-family:Montserrat,sans-serif}
     <input id="code" type="password" placeholder="PASSCODE" autocomplete="current-password" autofocus>
     <button class="btn gold" style="width:100%;padding:13px" id="loginBtn">Open dashboard</button>
     <div class="err" id="loginErr"></div>
-    <p id="demoHint" class="hidden" style="margin-top:10px">Demo mode: use <b>view</b> (read-only) or <b>treasurer</b> (can record).</p>
+    <p id="demoHint" class="hidden" style="margin-top:10px">Demo mode: use <b>view</b> (read-only) or <b>finsec</b> (Financial Secretary, can record).</p>
   </form>
 </section>
 
@@ -130,7 +130,7 @@ svg text{font-family:Montserrat,sans-serif}
       <button class="btn gold sm tonly" id="addPledge">+ Add pledge</button>
     </div>
     <div class="tablewrap"><table>
-      <thead><tr><th>Name</th><th>Phone</th><th class="n">Pledged</th><th class="n">Paid</th><th class="n">Balance</th><th>Status</th></tr></thead>
+      <thead><tr><th>Name</th><th>Phone</th><th class="n">Pledged</th><th>Plan</th><th class="n">Paid</th><th class="n">Balance</th><th>Status</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table></div>
   </div>
@@ -161,6 +161,7 @@ svg text{font-family:Montserrat,sans-serif}
 <form class="db" id="fAdd">
   <label>Full name</label><input id="aName" required>
   <div class="row2"><div><label>Phone / WhatsApp</label><input id="aPhone" inputmode="tel" placeholder="024…"></div><div><label>Pledge amount</label><input id="aAmt" type="number" min="1" step="0.01" required></div></div>
+  <label>Instalment months (1 = pay in full)</label><input id="aMonths" type="number" min="1" max="24" step="1" value="1" required>
   <label>Note (optional)</label><input id="aNote">
   <div class="err" id="aErr"></div>
   <button class="btn gold" style="width:100%;margin-top:6px">Save pledge</button>
