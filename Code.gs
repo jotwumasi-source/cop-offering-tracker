@@ -23,6 +23,11 @@ const P_HEAD = ['PledgeID', 'Timestamp', 'Name', 'Phone', 'Amount', 'Note', 'Sou
 const Y_HEAD = ['ReceiptNo', 'PledgeID', 'Date', 'Amount', 'Method', 'Reference', 'RecordedBy', 'Timestamp', 'Status'];
 const A_HEAD = ['Timestamp', 'User', 'Action', 'Target', 'Detail'];
 const R_HEAD = ['Version', 'Date', 'UpdatedBy', 'Summary'];
+const DEPOSITS = 'Deposits';
+const D_HEAD = ['DepositNo', 'Date', 'Amount', 'Bank', 'Reference', 'Note', 'ReceiptFileId', 'ReceiptName', 'ReceiptMime', 'RecordedBy', 'Timestamp', 'Status'];
+const RECEIPT_FOLDER = 'COP Offering Tracker - bank deposit receipts (private)';
+const MAX_RECEIPT_BYTES = 3 * 1024 * 1024;
+const RECEIPT_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 // The only people who can sign in. All three have full administrative rights.
 const USERS = [
@@ -40,12 +45,14 @@ const RELEASES = [
   { v: '1.3', date: '2026-11-23', summary: 'Edit, remove and void controls; possible-duplicate flag.' },
   { v: '1.4', date: '2026-11-23', summary: 'Faster saves: instant on-screen updates, lighter backend.' },
   { v: '1.5', date: '2026-11-23', summary: 'Edit seed offerings, clear validation messages, overpayment allowed.' },
-  { v: '2.0', date: '2026-11-23', summary: 'Named user accounts with personal passwords, activity log with every action tied to a name, software-update record. Old shared passcodes cancelled.' }
+  { v: '2.0', date: '2026-11-23', summary: 'Named user accounts with personal passwords, activity log with every action tied to a name, software-update record. Old shared passcodes cancelled.' },
+  { v: '2.1', date: '2026-11-24', summary: 'Bank deposits: record money deposited with a photo or PDF of the bank receipt, see money deposited and money left to deposit. Receipts are stored privately and shown only to signed-in users.' }
 ];
 
 function setup() {
   const ss = SpreadsheetApp.getActive();
-  [[PLEDGES, P_HEAD], [PAYMENTS, Y_HEAD], [OFFERINGS, O_HEAD], [ACTIVITY, A_HEAD], [RELEASES_SHEET, R_HEAD]].forEach(([n, h]) => sheet_(n, h));
+  [[PLEDGES, P_HEAD], [PAYMENTS, Y_HEAD], [OFFERINGS, O_HEAD], [DEPOSITS, D_HEAD], [ACTIVITY, A_HEAD], [RELEASES_SHEET, R_HEAD]].forEach(([n, h]) => sheet_(n, h));
+  receiptFolder_(); // creates the private Drive folder and asks for Drive permission once
   const props = PropertiesService.getScriptProperties();
   const db = dbGet_();
   USERS.forEach(user => {
@@ -199,11 +206,29 @@ function nextId_(sh, prefix, pad) {
   return prefix + String(max + 1).padStart(pad, '0');
 }
 
+// Private Drive folder for bank receipts. Never shared; files are served only through the signed-in API.
+function receiptFolder_() {
+  const it = DriveApp.getFoldersByName(RECEIPT_FOLDER);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(RECEIPT_FOLDER);
+}
+
+function depositsForClient_() {
+  ensureHeadersFor_(DEPOSITS, D_HEAD);
+  return rows_(DEPOSITS).map(d => { const o = Object.assign({}, d); o.HasReceipt = !!o.ReceiptFileId; delete o.ReceiptFileId; return o; });
+}
+
+function ensureHeadersFor_(name, head) {
+  const sh = sheet_(name, head);
+  const cur = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  head.forEach(k => { if (cur.indexOf(k) < 0) { sh.getRange(1, cur.length + 1).setValue(k).setFontWeight('bold').setBackground('#0a3480').setFontColor('#ffffff'); cur.push(k); } });
+  return sh;
+}
+
 function payload_(me) {
   const log = rows_(ACTIVITY); const last = log.slice(-300).reverse();
   return {
     me: me, role: 'admin',
-    pledges: rows_(PLEDGES), payments: rows_(PAYMENTS), offerings: rows_(OFFERINGS),
+    pledges: rows_(PLEDGES), payments: rows_(PAYMENTS), offerings: rows_(OFFERINGS), deposits: depositsForClient_(),
     log: me && me.it ? last : [], releases: me && me.it ? rows_(RELEASES_SHEET).reverse() : [],
     users: me && me.it ? USERS.map(x => ({ u: x.u, name: x.name })) : [],
     serverTime: new Date().toISOString()
@@ -289,6 +314,34 @@ function handle_(req) {
       const sno = nextId_(os, 'SO-', 4); created = { OfferingNo: sno };
       os.appendRow([sno, req.date || new Date().toISOString().slice(0, 10), req.name || '', amt, req.method || 'Cash', req.note || '', who, new Date().toISOString()]);
       log_(who, 'ADD SEED OFFERING', sno, 'GHS ' + amt + ' · ' + (req.method || 'Cash') + (req.name ? ' · ' + req.name : ''));
+    } else if (req.action === 'addDeposit') {
+      const amt = Number(req.amount);
+      if (!(amt > 0)) return { ok: false, error: 'Amount must be positive' };
+      if (!req.bank || !String(req.bank).trim()) return { ok: false, error: 'Enter the bank name' };
+      if (!req.receiptB64 || !RECEIPT_MIMES.includes(String(req.receiptMime))) return { ok: false, error: 'Attach the bank receipt (photo or PDF)' };
+      const bytes = Utilities.base64Decode(String(req.receiptB64));
+      if (bytes.length > MAX_RECEIPT_BYTES) return { ok: false, error: 'Receipt file is too large (limit 3 MB)' };
+      const ds = ensureHeadersFor_(DEPOSITS, D_HEAD);
+      const dno = nextId_(ds, 'BD-', 4); created = { DepositNo: dno };
+      const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' }[req.receiptMime];
+      const fname = dno + '_' + String(req.date || '').slice(0, 10) + '_' + String(req.bank).replace(/[^A-Za-z0-9]+/g, '-').slice(0, 30) + ext;
+      const file = receiptFolder_().createFile(Utilities.newBlob(bytes, req.receiptMime, fname));
+      ds.appendRow([dno, req.date || new Date().toISOString().slice(0, 10), amt, String(req.bank).trim(), req.reference || '', req.note || '', file.getId(), fname, req.receiptMime, who, new Date().toISOString()]);
+      log_(who, 'ADD BANK DEPOSIT', dno, 'GHS ' + amt + ' · ' + String(req.bank).trim() + (req.reference ? ' · ref ' + req.reference : '') + ' · receipt ' + fname);
+    } else if (req.action === 'getDepositReceipt') {
+      const rowsD = rows_(DEPOSITS), d = rowsD.find(x => x.DepositNo === req.depositNo);
+      if (!d || !d.ReceiptFileId) return { ok: false, error: 'Receipt not found' };
+      const blob = DriveApp.getFileById(String(d.ReceiptFileId)).getBlob();
+      log_(who, 'VIEW DEPOSIT RECEIPT', req.depositNo, '');
+      return { ok: true, name: d.ReceiptName, mime: d.ReceiptMime, b64: Utilities.base64Encode(blob.getBytes()) };
+    } else if (req.action === 'voidDeposit') {
+      const ds = ensureHeadersFor_(DEPOSITS, D_HEAD);
+      const v = ds.getDataRange().getValues();
+      const i = v.findIndex(x => x[0] === req.depositNo);
+      if (i < 1) return { ok: false, error: 'Deposit not found' };
+      ds.getRange(i + 1, colOf_(ds, 'Status')).setValue('VOID');
+      if (req.reason) { const nc = colOf_(ds, 'Note'); ds.getRange(i + 1, nc).setValue((String(v[i][nc - 1] || '') + ' [void: ' + req.reason + ']').trim()); }
+      log_(who, 'VOID BANK DEPOSIT', req.depositNo, 'GHS ' + v[i][colOf_(ds, 'Amount') - 1] + (req.reason ? ' · ' + req.reason : ''));
     } else if (req.action === 'deletePledge') {
       const v = ps.getDataRange().getValues();
       const i = v.findIndex(x => x[0] === req.id);

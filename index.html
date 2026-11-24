@@ -113,6 +113,16 @@ svg text{font-family:Montserrat,sans-serif}
   <div class="kpis" id="kpis"></div>
 
   <div class="card">
+    <h2>Bank deposits</h2>
+    <div class="tools" style="margin-bottom:8px">
+      <button class="btn gold" id="btnDeposit">＋ Deposit money &amp; upload receipt</button>
+      <button class="btn" id="btnDeposited">Money deposited</button>
+      <button class="btn" id="btnLeft">Money left to deposit</button>
+    </div>
+    <div id="depSummary" style="font-size:13px;color:var(--mute)"></div>
+  </div>
+
+  <div class="card">
     <h2>Pledge fulfilment</h2>
     <div class="bar"><i id="progress" style="width:0"></i></div>
     <div class="barlab"><span id="pl1"></span><span id="pl2"></span></div>
@@ -248,6 +258,30 @@ svg text{font-family:Montserrat,sans-serif}
   <div class="err" id="yErr"></div>
   <button class="btn gold" style="width:100%;margin-top:6px" id="yBtn">Save &amp; create receipt</button>
 </form></dialog>
+
+<!-- bank deposit: record + receipt upload -->
+<dialog id="dDeposit"><div class="dh"><h3>DEPOSIT MONEY &amp; UPLOAD RECEIPT</h3><button data-close>×</button></div>
+<form class="db" id="fDeposit" novalidate>
+  <div id="dpHelp" style="font-size:13px;color:var(--mute)"></div>
+  <div class="row2"><div><label>Amount deposited</label><input id="dpAmt" type="number" min="0.01" step="any" required></div><div><label>Date of deposit</label><input id="dpDate" type="date" required></div></div>
+  <div class="row2"><div><label>Bank</label><input id="dpBank" list="bankList" placeholder="e.g. GCB Bank" required><datalist id="bankList"><option>GCB Bank</option><option>Fidelity Bank</option><option>Ecobank</option><option>Absa Bank</option><option>Stanbic Bank</option><option>CBG</option><option>Zenith Bank</option><option>Consolidated Bank Ghana</option></datalist></div><div><label>Slip / reference no. (optional)</label><input id="dpRef"></div></div>
+  <label>Bank receipt (photo or PDF, required)</label>
+  <input id="dpFile" type="file" accept="image/*,application/pdf">
+  <div id="dpFileInfo" style="font-size:12px;color:var(--mute);margin-top:6px"></div>
+  <label>Note (optional)</label><input id="dpNote" placeholder="e.g. Sunday collection, deposited by Elder …">
+  <div class="err" id="dpErr"></div>
+  <button class="btn gold" style="width:100%;margin-top:6px" id="dpBtn">Save deposit</button>
+</form></dialog>
+
+<!-- money deposited -->
+<dialog id="dDeposited" style="width:min(820px,96vw)"><div class="dh"><h3>MONEY DEPOSITED</h3><button data-close>×</button></div>
+<div class="db"><div id="ddSum" class="sum"></div>
+  <div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Bank</th><th>Reference</th><th class="n">Amount</th><th></th></tr></thead><tbody id="ddBody"></tbody></table></div>
+</div></dialog>
+
+<!-- money left to deposit -->
+<dialog id="dLeft"><div class="dh"><h3>MONEY LEFT TO DEPOSIT</h3><button data-close>×</button></div>
+<div class="db"><div id="dlSum" class="sum"></div><div id="dlBody"></div></div></dialog>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="config.js"></script>

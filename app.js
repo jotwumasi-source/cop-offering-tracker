@@ -5,7 +5,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const money = n => C.currency + ' ' + Number(n || 0).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const money0 = n => '<span class="cur">' + C.currency + '</span> ' + Math.round(Number(n || 0)).toLocaleString('en-GB');
 const store = { get(k) { try { return sessionStorage.getItem(k); } catch { return null; } }, set(k, v) { try { sessionStorage.setItem(k, v); } catch {} }, del(k) { try { sessionStorage.removeItem(k); } catch {} } };
-let S = { role: null, token: null, user: null, pledges: [], payments: [], offerings: [], log: [], releases: [], users: [] };
+let S = { role: null, token: null, user: null, pledges: [], payments: [], offerings: [], deposits: [], log: [], releases: [], users: [] };
 const phoneOf = p => { const d = String(p ?? '').replace(/[^0-9+]/g, ''); return d.length === 9 && !d.startsWith('+') ? '0' + d : d; };
 
 /* ------------------------------------------------------------ data layer */
@@ -20,7 +20,7 @@ function demoSeed() {
   const offerings = [{ OfferingNo: 'SO-0001', Date: new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10), Name: '', Amount: 650, Method: 'Cash', Note: 'Sunday seed offering' }, { OfferingNo: 'SO-0002', Date: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), Name: 'Nana Yaw Sarpong', Amount: 300, Method: 'MoMo', Note: '' }];
   return { pledges, payments: pay, offerings };
 }
-const demoLoad = () => { try { const j = localStorage.getItem(DKEY); if (j) { const d = JSON.parse(j); if (!d.offerings) { d.offerings = demoSeed().offerings; demoSave(d); } return d; } } catch {} const d = demoSeed(); demoSave(d); return d; };
+const demoLoad = () => { try { const j = localStorage.getItem(DKEY); if (j) { const d = JSON.parse(j); if (!d.offerings) { d.offerings = demoSeed().offerings; demoSave(d); } if (!d.deposits) { d.deposits = []; d.files = {}; demoSave(d); } return d; } } catch {} const d = demoSeed(); demoSave(d); return d; };
 const demoSave = d => { try { localStorage.setItem(DKEY, JSON.stringify(d)); } catch {} };
 
 const sessionExpired = () => { store.del('token'); toast('Session expired. Please sign in again.'); setTimeout(() => location.reload(), 1300); };
@@ -52,7 +52,7 @@ function demoApi(r) {
   if (r.action === 'logout') { lg(user.name, 'LOGOUT'); demoSave(d); return Promise.resolve({ ok: true }); }
   if (r.action === 'changePassword') { if (d.pw[u] !== r.oldPassword) fail('Your current password is wrong.'); if (String(r.newPassword || '').length < 8) fail('New password must be at least 8 characters.'); d.pw[u] = r.newPassword; delete d.must[u]; lg(user.name, 'PASSWORD CHANGED', user.name); demoSave(d); return Promise.resolve({ ok: true }); }
   if (r.action === 'resetPassword') { if (!user.it) fail('Only the IT specialist can reset passwords.'); const t = DEMO_USERS.find(x => x.u === r.username); if (!t) fail('User not found'); const temp = 'temp' + Math.random().toString(36).slice(2, 8); d.pw[t.u] = temp; d.must[t.u] = true; lg(user.name, 'PASSWORD RESET', t.name, 'new temporary password issued'); demoSave(d); return Promise.resolve({ ok: true, tempPassword: temp }); }
-  if (r.action === 'load') return Promise.resolve({ ok: true, role: 'admin', me: { ...user, mustChange: false }, pledges: d.pledges, payments: d.payments, offerings: d.offerings, log: user.it ? d.log.slice().reverse().slice(0, 300) : [], releases: user.it ? DEMO_RELEASES : [], users: user.it ? DEMO_USERS.map(x => ({ u: x.u, name: x.name })) : [] });
+  if (r.action === 'load') return Promise.resolve({ ok: true, role: 'admin', me: { ...user, mustChange: false }, pledges: d.pledges, payments: d.payments, offerings: d.offerings, deposits: d.deposits, log: user.it ? d.log.slice().reverse().slice(0, 300) : [], releases: user.it ? DEMO_RELEASES : [], users: user.it ? DEMO_USERS.map(x => ({ u: x.u, name: x.name })) : [] });
   const who = user.name, last = arr => arr[arr.length - 1];
   if (r.action === 'addPledge') { d.pledges.push({ PledgeID: 'P' + String(d.pledges.length + 1).padStart(4, '0'), Timestamp: new Date().toISOString(), Name: r.name, Phone: r.phone || '', Amount: +r.amount, Note: r.note || '', Source: 'Manual', Months: Math.max(1, parseInt(r.months, 10) || 1) }); lg(who, 'ADD PLEDGE', last(d.pledges).PledgeID, r.name + ' · GHS ' + r.amount); }
   else if (r.action === 'addPayment') { d.payments.push({ ReceiptNo: 'RCP-' + String(d.payments.length + 1).padStart(4, '0'), PledgeID: r.pledgeId, Date: r.date, Amount: +r.amount, Method: r.method, Reference: r.reference || '', RecordedBy: who }); lg(who, 'ADD PAYMENT', last(d.payments).ReceiptNo, r.pledgeId + ' · GHS ' + r.amount); }
@@ -62,16 +62,30 @@ function demoApi(r) {
   else if (r.action === 'voidPayment') { const p = d.payments.find(x => x.ReceiptNo === r.receiptNo); if (!p) fail('Receipt not found'); p.Status = 'VOID'; lg(who, 'VOID PAYMENT', r.receiptNo, 'GHS ' + p.Amount + (r.reason ? ' · ' + r.reason : '')); }
   else if (r.action === 'editOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) fail('Seed offering not found'); if (!(+r.amount > 0)) fail('Amount must be positive'); const old = o.Amount; o.Amount = +r.amount; if (r.name != null) o.Name = r.name; if (r.method) o.Method = r.method; if (r.date) o.Date = r.date; if (r.note != null) o.Note = r.note; lg(who, 'EDIT SEED OFFERING', r.offeringNo, old !== o.Amount ? 'amount ' + old + ' -> ' + o.Amount : 'details updated'); }
   else if (r.action === 'voidOffering') { const o = d.offerings.find(x => x.OfferingNo === r.offeringNo); if (!o) fail('Seed offering not found'); o.Status = 'VOID'; lg(who, 'VOID SEED OFFERING', r.offeringNo, 'GHS ' + o.Amount); }
+  else if (r.action === 'addDeposit') {
+    if (!(+r.amount > 0)) fail('Amount must be positive'); if (!String(r.bank || '').trim()) fail('Enter the bank name'); if (!r.receiptB64) fail('Attach the bank receipt (photo or PDF)');
+    const no = 'BD-' + String(d.deposits.length + 1).padStart(4, '0'); d.files = d.files || {}; d.files[no] = { name: r.receiptName, mime: r.receiptMime, b64: r.receiptB64 };
+    d.deposits.push({ DepositNo: no, Date: r.date, Amount: +r.amount, Bank: String(r.bank).trim(), Reference: r.reference || '', Note: r.note || '', ReceiptName: r.receiptName, ReceiptMime: r.receiptMime, HasReceipt: true, RecordedBy: who }); lg(who, 'ADD BANK DEPOSIT', no, 'GHS ' + r.amount + ' · ' + r.bank);
+  }
+  else if (r.action === 'getDepositReceipt') { const f = (d.files || {})[r.depositNo]; if (!f) fail('Receipt not found'); return Promise.resolve({ ok: true, ...f }); }
+  else if (r.action === 'voidDeposit') { const x = d.deposits.find(y => y.DepositNo === r.depositNo); if (!x) fail('Deposit not found'); x.Status = 'VOID'; lg(who, 'VOID BANK DEPOSIT', r.depositNo, 'GHS ' + x.Amount + (r.reason ? ' · ' + r.reason : '')); }
   else fail('Unknown action');
   demoSave(d);
-  const created = r.action === 'addPledge' ? { PledgeID: last(d.pledges).PledgeID } : r.action === 'addPayment' ? { ReceiptNo: last(d.payments).ReceiptNo } : r.action === 'addOffering' ? { OfferingNo: last(d.offerings).OfferingNo } : {};
+  const created = r.action === 'addDeposit' ? { DepositNo: last(d.deposits).DepositNo } :r.action === 'addPledge' ? { PledgeID: last(d.pledges).PledgeID } : r.action === 'addPayment' ? { ReceiptNo: last(d.payments).ReceiptNo } : r.action === 'addOffering' ? { OfferingNo: last(d.offerings).OfferingNo } : {};
   return Promise.resolve({ ok: true, created });
 }
 
 /* ------------------------------------------------------------ calculations */
 const isVoid = x => String(x.Status || '').toUpperCase() === 'VOID' || String(x.Method || '').toUpperCase() === 'VOID';
 const valid = () => S.payments.filter(p => !isVoid(p));
-function setData(j) { S.pledges = (j.pledges || []).filter(p => String(p.Status || '').toUpperCase() !== 'REMOVED'); S.payments = j.payments || []; S.offerings = (j.offerings || []).filter(o => !isVoid(o)); }
+function setData(j) { S.pledges = (j.pledges || []).filter(p => String(p.Status || '').toUpperCase() !== 'REMOVED'); S.payments = j.payments || []; S.offerings = (j.offerings || []).filter(o => !isVoid(o)); S.deposits = (j.deposits || []).filter(x => !isVoid(x)); }
+// Money position: everything received (pledge payments + seed offerings) against everything banked.
+function cash() {
+  const byM = {}; const add = (m, a) => { const k = String(m || 'Other'); byM[k] = (byM[k] || 0) + Number(a || 0); };
+  valid().forEach(p => add(p.Method, p.Amount)); S.offerings.forEach(o => add(o.Method, o.Amount));
+  const received = Object.values(byM).reduce((s, v) => s + v, 0), deposited = S.deposits.reduce((s, x) => s + Number(x.Amount || 0), 0);
+  return { byM, received, deposited, left: received - deposited };
+}
 function model() {
   const by = {}; valid().forEach(p => { (by[p.PledgeID] = by[p.PledgeID] || []).push(p); });
   const rows = S.pledges.map(pl => {
@@ -95,11 +109,13 @@ function render() {
     ['', 'Total pledged', money0(T.pledged), T.n + ' pledgers'],
     ['', 'Pledge payments', money0(T.received), valid().length + ' payments · ' + pct.toFixed(1) + '% of pledges'],
     ['o', 'Seed offering', money0(seed), S.offerings.length + ' entries (not a pledge)'],
-    ['r', 'Outstanding pledges', money0(T.out), (T.n - T.paidN) + ' still owing']
+    ['r', 'Outstanding pledges', money0(T.out), (T.n - T.paidN) + ' still owing'],
+    ['g', 'Deposited in bank', money0(cash().deposited), S.deposits.length + ' deposit' + (S.deposits.length === 1 ? '' : 's') + ' with receipts'],
+    [cash().left > 0.005 ? 'o' : 'g', 'Left to deposit', money0(Math.max(0, cash().left)), cash().left < -0.005 ? 'deposits exceed money recorded by ' + money(-cash().left) : 'money received but not yet banked']
   ].map(k => `<div class="kpi ${k[0]}"><div class="l">${k[1]}</div><div class="v">${k[2]}</div><div class="s">${k[3]}</div></div>`).join('');
   $('#progress').style.width = pct + '%';
   $('#pl1').innerHTML = money0(T.received) + ' paid on pledges'; $('#pl2').innerHTML = money0(T.out) + ' outstanding';
-  chartWeeks(); statusBlock(T);
+  chartWeeks(); statusBlock(T); depPanels();
   const q = $('#q').value.trim().toLowerCase(), f = $('#flt').value;
   const list = rows.filter(r => (!q || (r.Name + ' ' + r.Phone).toLowerCase().includes(q)) && (f === 'all' || (f === 'open' ? r.status !== 'paid' : r.status === f)));
   const lab = { none: 'NOT STARTED', part: 'PART-PAID', paid: 'PAID' };
@@ -179,6 +195,8 @@ function applyLocal(req, created) {
   else if (req.action === 'voidPayment') { const p = S.payments.find(x => x.ReceiptNo === req.receiptNo); if (p) p.Status = 'VOID'; }
   else if (req.action === 'editOffering') { const o = S.offerings.find(x => x.OfferingNo === req.offeringNo); if (o) { o.Amount = num(req.amount); if (req.name != null) o.Name = req.name; if (req.method) o.Method = req.method; if (req.date) o.Date = req.date; if (req.note != null) o.Note = req.note; } }
   else if (req.action === 'voidOffering') S.offerings = S.offerings.filter(o => o.OfferingNo !== req.offeringNo);
+  else if (req.action === 'addDeposit') S.deposits.push({ DepositNo: created.DepositNo, Date: req.date, Amount: num(req.amount), Bank: req.bank, Reference: req.reference || '', Note: req.note || '', ReceiptName: req.receiptName, ReceiptMime: req.receiptMime, HasReceipt: true, RecordedBy: S.user.name });
+  else if (req.action === 'voidDeposit') S.deposits = S.deposits.filter(x => x.DepositNo !== req.depositNo);
 }
 // Everything shows on screen instantly and syncs in the background. Adds get a temporary id until the server assigns the real number.
 const pend = id => String(id).startsWith('tmp');
@@ -187,21 +205,22 @@ async function mutate(req, okMsg) {
   const full = { ...req, token: S.token };
   if (req.action.startsWith('add')) {
     const tmp = 'tmp' + (++tmpN);
-    applyLocal(req, { PledgeID: tmp, ReceiptNo: tmp, OfferingNo: tmp }); render(); toast('Saving…');
+    applyLocal(req, { PledgeID: tmp, ReceiptNo: tmp, OfferingNo: tmp, DepositNo: tmp }); render(); toast('Saving…');
     try {
       const j = await api(full), c = j.created || {};
       if (req.action === 'addPledge') { const p = S.pledges.find(x => x.PledgeID === tmp); if (p) p.PledgeID = c.PledgeID; S.payments.forEach(y => { if (y.PledgeID === tmp) y.PledgeID = c.PledgeID; }); }
       if (req.action === 'addPayment') { const y = S.payments.find(x => x.ReceiptNo === tmp); if (y) y.ReceiptNo = c.ReceiptNo; }
       if (req.action === 'addOffering') { const o = S.offerings.find(x => x.OfferingNo === tmp); if (o) o.OfferingNo = c.OfferingNo; }
+      if (req.action === 'addDeposit') { const x = S.deposits.find(y => y.DepositNo === tmp); if (x) x.DepositNo = c.DepositNo; }
       render(); toast(okMsg); return c;
     } catch (er) {
-      S.pledges = S.pledges.filter(x => x.PledgeID !== tmp); S.payments = S.payments.filter(x => x.ReceiptNo !== tmp); S.offerings = S.offerings.filter(x => x.OfferingNo !== tmp);
+      S.pledges = S.pledges.filter(x => x.PledgeID !== tmp); S.payments = S.payments.filter(x => x.ReceiptNo !== tmp); S.offerings = S.offerings.filter(x => x.OfferingNo !== tmp); S.deposits = S.deposits.filter(x => x.DepositNo !== tmp);
       render(); throw er;
     }
   }
-  const snap = JSON.stringify({ p: S.pledges, y: S.payments, o: S.offerings });
+  const snap = JSON.stringify({ p: S.pledges, y: S.payments, o: S.offerings, d: S.deposits });
   applyLocal(req); render(); toast(okMsg);
-  api(full).catch(er => { const s = JSON.parse(snap); S.pledges = s.p; S.payments = s.y; S.offerings = s.o; render(); toast('Not saved: ' + er.message + ' (change undone)'); });
+  api(full).catch(er => { const s = JSON.parse(snap); S.pledges = s.p; S.payments = s.y; S.offerings = s.o; S.deposits = s.d; render(); toast('Not saved: ' + er.message + ' (change undone)'); });
   return {};
 }
 function editSeedDialog(no) {
@@ -327,7 +346,9 @@ $('#csv').onclick = () => {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.map(l => l.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',')).join('\n')], { type: 'text/csv' })); a.download = 'pledges.csv'; a.click();
 };
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],[data-edit],[data-del],[data-voidp],[data-voido],[data-eo],tr.row'); if (!t) return;
+  const t = e.target.closest('[data-rcp],[data-wa],[data-pay],[data-edit],[data-del],[data-voidp],[data-voido],[data-eo],[data-vdep],[data-voidd],tr.row'); if (!t) return;
+  if (t.dataset.vdep) return viewDepositReceipt(t.dataset.vdep);
+  if (t.dataset.voidd) { const x = S.deposits.find(y => y.DepositNo === t.dataset.voidd); return confirmAction('VOID BANK DEPOSIT', 'Void deposit <b>' + esc(x.DepositNo) + '</b> (' + money(x.Amount) + ', ' + esc(x.Bank) + ')? The amount goes back into "left to deposit". The row and its receipt file stay on record marked VOID. Record the correct deposit afterwards if needed.', 'Void deposit').then(r => { if (r !== null) mutate({ action: 'voidDeposit', depositNo: x.DepositNo, reason: r }, x.DepositNo + ' voided').catch(er => toast(er.message)); }); }
   if (t.dataset.eo) return editSeedDialog(t.dataset.eo);
   if (t.dataset.edit) return editDialog(t.dataset.edit);
   if (t.dataset.del) { const p = S.pledges.find(x => x.PledgeID === t.dataset.del); $('#dPledge').close(); return confirmAction('REMOVE PLEDGE', 'Remove the pledge of <b>' + esc(p.Name) + '</b> (' + money(p.Amount) + ')? It disappears from the totals. The row stays in the Sheet marked REMOVED.', 'Remove').then(r => { if (r !== null) mutate({ action: 'deletePledge', id: p.PledgeID, reason: r }, 'Pledge removed').catch(er => toast(er.message)); }); }
@@ -361,6 +382,63 @@ $('#fSeed').addEventListener('submit', e => {
   mutate({ action: 'addOffering', name: $('#sName').value.trim(), amount: $('#sAmt').value, date: $('#sDate').value, method: $('#sMethod').value, note: $('#sNote').value.trim() }, 'Seed offering recorded')
     .then(c => { if (c.OfferingNo) downloadReceipt(c.OfferingNo); }).catch(failed);
 });
+/* ------------------------------------------------------------ bank deposits */
+function depPanels() {
+  const c = cash();
+  $('#depSummary').innerHTML = 'Received <b>' + money(c.received) + '</b> · Deposited <b>' + money(c.deposited) + '</b> · Left to deposit <b style="color:' + (c.left > 0.005 ? 'var(--red)' : 'var(--green)') + '">' + money(Math.max(0, c.left)) + '</b>' + (c.left < -0.005 ? ' <span class="pill part">DEPOSITS EXCEED RECORDED MONEY BY ' + money(-c.left) + '</span>' : '');
+  const sum = (a, b, d) => `<div><b>${a}</b><span>${b}</span></div>`;
+  $('#ddSum').innerHTML = sum(money0(c.deposited), 'Deposited') + sum(S.deposits.length, 'Deposits') + sum(money0(Math.max(0, c.left)), 'Left to deposit');
+  const rows = S.deposits.slice().sort((a, b) => String(b.DepositNo).localeCompare(String(a.DepositNo)));
+  $('#ddBody').innerHTML = rows.length ? rows.map(x => `<tr><td><b>${pend(x.DepositNo) ? '…' : esc(x.DepositNo)}</b></td><td>${esc(String(x.Date).slice(0, 10))}</td><td>${esc(x.Bank)}${x.Note ? '<div class="mini" style="height:auto;background:none;color:var(--mute);font-size:11px">' + esc(x.Note) + '</div>' : ''}</td><td>${esc(x.Reference) || '<span style="color:var(--mute)">—</span>'}</td><td class="n">${money(x.Amount)}</td><td class="n" style="white-space:nowrap">${pend(x.DepositNo) ? '<span style="color:var(--mute)">saving…</span>' : (x.HasReceipt ? '<button class="btn sm" data-vdep="' + esc(x.DepositNo) + '">View receipt</button>' : '<span class="pill none">NO RECEIPT</span>') + ' <button class="btn sm ghost" data-voidd="' + esc(x.DepositNo) + '">Void</button>'}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">No bank deposit recorded yet.</td></tr>';
+  $('#dlSum').innerHTML = sum(money0(c.received), 'Received') + sum(money0(c.deposited), 'Deposited') + sum(money0(Math.max(0, c.left)), 'Left to deposit');
+  const meth = Object.entries(c.byM).sort((a, b) => b[1] - a[1]);
+  $('#dlBody').innerHTML = '<div style="font-size:13px;color:var(--mute);margin-bottom:8px">Received = pledge payments + seed offerings (voided entries excluded), minus every bank deposit recorded.</div><table><thead><tr><th>Received by method</th><th class="n">Amount</th></tr></thead><tbody>' + (meth.length ? meth.map(([m, v]) => `<tr><td>${esc(m)}</td><td class="n">${money(v)}</td></tr>`).join('') : '<tr><td colspan="2" class="empty">Nothing received yet.</td></tr>') + `<tr><td><b>Total received</b></td><td class="n"><b>${money(c.received)}</b></td></tr><tr><td>Less: deposited in bank</td><td class="n">− ${money(c.deposited)}</td></tr><tr><td><b>Left to deposit</b></td><td class="n"><b style="color:${c.left > 0.005 ? 'var(--red)' : 'var(--green)'}">${money(c.left)}</b></td></tr></tbody></table>` + (c.left < -0.005 ? '<div class="err">Deposits are higher than the money recorded. Check for a missing payment or a wrong deposit amount.</div>' : '');
+}
+$('#btnDeposited').onclick = () => { depPanels(); openD($('#dDeposited')); };
+$('#btnLeft').onclick = () => { depPanels(); openD($('#dLeft')); };
+let depFile = null;
+$('#btnDeposit').onclick = () => {
+  $('#fDeposit').reset(); depFile = null; $('#dpErr').textContent = ''; $('#dpFileInfo').textContent = ''; $('#dpDate').value = new Date().toISOString().slice(0, 10);
+  const c = cash(); $('#dpHelp').innerHTML = 'Left to deposit now: <b>' + money(Math.max(0, c.left)) + '</b>. Enter what was actually paid in and attach the bank receipt.';
+  openD($('#dDeposit'));
+};
+const b64of = blob => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(new Error('Could not read the file')); r.readAsDataURL(blob); });
+async function prepReceipt(f) {
+  if (f.type === 'application/pdf') { if (f.size > 2.2 * 1048576) throw new Error('PDF is too large (limit about 2 MB). Take a photo of the receipt instead.'); return { b64: await b64of(f), mime: 'application/pdf', name: f.name, size: f.size }; }
+  if (!/^image\//.test(f.type)) throw new Error('Attach a photo (JPG/PNG) or a PDF of the bank receipt.');
+  const url = URL.createObjectURL(f);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('This photo format cannot be read here. Use JPG or PNG, or a PDF.')); i.src = url; });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), cv = document.createElement('canvas');
+    cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+    const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+    return { b64: await b64of(blob), mime: 'image/jpeg', name: f.name.replace(/\.[^.]+$/, '') + '.jpg', size: blob.size };
+  } finally { URL.revokeObjectURL(url); }
+}
+$('#dpFile').addEventListener('change', async () => {
+  const f = $('#dpFile').files[0]; depFile = null; $('#dpFileInfo').textContent = '';
+  if (!f) return;
+  $('#dpFileInfo').textContent = 'Preparing…';
+  try { depFile = await prepReceipt(f); $('#dpFileInfo').textContent = '✓ ' + depFile.name + ' · ' + Math.round(depFile.size / 1024) + ' KB ready'; }
+  catch (er) { $('#dpFileInfo').textContent = ''; $('#dpErr').textContent = er.message; $('#dpFile').value = ''; }
+});
+$('#fDeposit').addEventListener('submit', e => {
+  e.preventDefault();
+  if (!ok('#dpErr', [[pos('#dpAmt'), 'Enter the amount deposited (greater than 0).', '#dpAmt'], [$('#dpDate').value, 'Choose the date of the deposit.', '#dpDate'], [$('#dpBank').value.trim(), 'Enter the bank name.', '#dpBank'], [depFile, 'Attach the bank receipt (photo or PDF).', '#dpFile']])) return;
+  const f = depFile; $('#dDeposit').close();
+  mutate({ action: 'addDeposit', amount: $('#dpAmt').value, date: $('#dpDate').value, bank: $('#dpBank').value.trim(), reference: $('#dpRef').value.trim(), note: $('#dpNote').value.trim(), receiptB64: f.b64, receiptMime: f.mime, receiptName: f.name }, 'Deposit recorded').catch(failed);
+});
+async function viewDepositReceipt(no) {
+  const w = window.open('', '_blank'); toast('Opening receipt…');
+  try {
+    const j = await api({ action: 'getDepositReceipt', token: S.token, depositNo: no });
+    const bin = atob(j.b64), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    const u = URL.createObjectURL(new Blob([a], { type: j.mime }));
+    if (w) w.location = u; else window.open(u, '_blank');
+    setTimeout(() => URL.revokeObjectURL(u), 120000);
+  } catch (er) { if (w) w.close(); toast('Could not open: ' + er.message); }
+}
 $('#addPledge').onclick = () => { $('#fAdd').reset(); $('#aErr').textContent = ''; openD($('#dAdd')); };
 $('#fAdd').addEventListener('submit', e => {
   e.preventDefault();
